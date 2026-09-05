@@ -23,6 +23,7 @@ class FakeAgents implements ManagedAgents {
   callbacks?: ObserverCallbacks;
   state: AgentState = "working";
   destroyed = 0;
+  destroyHook?: () => Promise<void>;
   sent: string[] = [];
   async start() {}
   async stop() {}
@@ -32,7 +33,7 @@ class FakeAgents implements ManagedAgents {
   async steer(_agent: Agent, message: string) { this.sent.push(message); }
   observe(_agent: Agent, _after: string | undefined, callbacks: ObserverCallbacks) { this.callbacks = callbacks; }
   stopObserving() {}
-  async destroy() { this.destroyed += 1; }
+  async destroy() { this.destroyed += 1; await this.destroyHook?.(); }
   candidate(candidate: Candidate) { this.callbacks?.onCandidate(candidate); }
   statusUpdate(state: AgentState) { this.callbacks?.onStatus(state); }
 }
@@ -78,6 +79,41 @@ test("registers only after task acceptance and finalizes a settled candidate", a
     assert.equal(destroyed.data.output, "Answer");
     assert.equal(sent.length, 1);
     assert.equal(sent[0].content, `${forkId}:\n\nAnswer`);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("drains active finalization before a session tree transition", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = [{ type: "message", id: "assistant", parentId: "user", message: {
+    role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", id: "call-1", name: "create_fork", arguments: {} }],
+  } }];
+  const pi = { appendEntry(_type: string, data: unknown) { branch.push({ type: "custom", customType: "pi-async-fork", data }); }, sendMessage() {} };
+  const ctx = { cwd: root, sessionManager: {
+    getBranch: () => branch,
+    getSessionFile: () => join(root, "parent.jsonl"),
+    getHeader: () => ({ type: "session", version: 3, id: "parent", cwd: root }),
+  } };
+  const agents = new FakeAgents();
+  let destroyStarted!: () => void;
+  const started = new Promise<void>((resolve) => { destroyStarted = resolve; });
+  let releaseDestroy!: () => void;
+  const release = new Promise<void>((resolve) => { releaseDestroy = resolve; });
+  agents.destroyHook = async () => { destroyStarted(); await release; };
+  const controller = new Controller(pi, configuration, agents);
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    agents.candidate({ text: "Answer", cursor: "cursor-1" });
+    agents.statusUpdate("idle");
+    await started;
+    let transitionFinished = false;
+    const transition = controller.beforeTree().then(() => { transitionFinished = true; });
+    await waitForLifecycle();
+    assert.equal(transitionFinished, false);
+    releaseDestroy();
+    await transition;
+    assert.equal(branch.some((entry) => entry?.data?.type === "fork.destroyed"), true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
