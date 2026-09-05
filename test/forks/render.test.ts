@@ -88,7 +88,7 @@ test("renders fork result messages without duplicating the fork ID", async () =>
     };
     const response = renderer.renderForkResultMessage(
       { content: "research-1234567:\n\nResult with `code`.", details: { forkId: "research-1234567", kind: "response" } },
-      { outputPad: 2 },
+      { expanded: true, outputPad: 2 },
       renderTheme,
     );
     assert.equal(text(response), "✓ fork research-1234567\nResult with `code`.");
@@ -99,16 +99,24 @@ test("renders fork result messages without duplicating the fork ID", async () =>
     assert.ok(colors.includes("customMessageBg"));
     assert.ok(colors.includes("customMessageText"));
 
+    const collapsed = renderer.renderForkResultMessage(
+      { content: "research-1234567:\n\nHidden result.", details: { forkId: "research-1234567", kind: "response" } },
+      { expanded: false, outputPad: 2 },
+      theme(),
+    );
+    assert.equal(text(collapsed), "✓ fork research-1234567");
+    assert.equal(collapsed.children.length, 1);
+
     const notice = renderer.renderForkResultMessage(
       { content: "research-1234567:\n\nNo final response.", details: { forkId: "research-1234567", kind: "notice" } },
-      {},
+      { expanded: true },
       theme(),
     );
     assert.equal(text(notice), "⚠ fork research-1234567\nNo final response.");
 
     const legacy = renderer.renderForkResultMessage(
       { content: "research-1234567:\n\nLegacy result.", details: { forkId: "research-1234567" } },
-      {},
+      { expanded: true },
       theme(),
     );
     assert.equal(text(legacy), "• fork research-1234567\nLegacy result.");
