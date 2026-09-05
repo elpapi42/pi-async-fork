@@ -82,6 +82,7 @@ export function renderForkResultMessage(message: any, { expanded }: { expanded: 
 
 export function renderCreateForkCall(args: any, theme: any, context: RenderContext) {
   const component = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+  context.state.createCallComponent = component;
   component.setText(createCallText(args, context.state.forkId, theme));
   return component;
 }
@@ -90,7 +91,8 @@ export function renderCreateForkResult(result: any, { expanded }: { expanded: bo
   const id = result?.details?.forkId;
   if (!context.isError && typeof id === "string" && context.state.forkId !== id) {
     context.state.forkId = id;
-    context.invalidate();
+    const callComponent = context.state.createCallComponent;
+    if (callComponent instanceof Text) callComponent.setText(createCallText(context.args, id, theme));
   }
 
   const output = textContent(result);
@@ -112,14 +114,20 @@ export function renderSteerForkResult(result: any, { expanded }: { expanded: boo
 
 export function renderForkStatusCall(args: any, theme: any, context: RenderContext) {
   const state = typeof context.state.status === "string" ? `: ${statusColor(context.state.status, theme)}` : "";
-  return new Text(`${theme.fg("toolTitle", theme.bold("fork_status"))} ${theme.fg("accent", forkId(args))}${state}`, 0, 0);
+  const component = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+  context.state.statusCallComponent = component;
+  component.setText(`${theme.fg("toolTitle", theme.bold("fork_status"))} ${theme.fg("accent", forkId(args))}${state}`);
+  return component;
 }
 
 export function renderForkStatusResult(result: any, _options: { expanded: boolean }, theme: any, context: RenderContext) {
   const state = result?.details?.state;
   if (!context.isError && typeof state === "string" && context.state.status !== state) {
     context.state.status = state;
-    context.invalidate();
+    const callComponent = context.state.statusCallComponent;
+    if (callComponent instanceof Text) {
+      callComponent.setText(`${theme.fg("toolTitle", theme.bold("fork_status"))} ${theme.fg("accent", forkId(context.args))}: ${statusColor(state, theme)}`);
+    }
   }
   const output = textContent(result);
   if (context.isError) return new Text(theme.fg("error", output || "Fork status failed."), 0, 0);

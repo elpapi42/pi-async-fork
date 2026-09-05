@@ -56,22 +56,15 @@ test("renders pending and completed fork IDs in the call line", async () => {
     const pending = renderer.renderCreateForkCall({ name: "review", tier: "fast" }, theme(), { state });
     assert.equal(text(pending), "create_fork [fast] review-…");
 
-    let invalidations = 0;
     renderer.renderCreateForkResult(
       { content: [], details: { forkId: "review-1234567" } },
       { expanded: false },
       theme(),
-      { state, isError: false, invalidate: () => { invalidations += 1; } },
+      { state, args: { name: "review", tier: "fast" }, isError: false, invalidate: () => { throw new Error("must not invalidate while rendering"); } },
     );
+    assert.equal(text(pending), "create_fork [fast] review-1234567");
     const completed = renderer.renderCreateForkCall({ name: "review", tier: "fast" }, theme(), { state, lastComponent: pending });
     assert.equal(text(completed), "create_fork [fast] review-1234567");
-    renderer.renderCreateForkResult(
-      { content: [], details: { forkId: "review-1234567" } },
-      { expanded: false },
-      theme(),
-      { state, isError: false, invalidate: () => { invalidations += 1; } },
-    );
-    assert.equal(invalidations, 1);
   } finally {
     await cleanup();
   }
@@ -151,21 +144,14 @@ test("renders steering and status calls without successful result output", async
     const statusState: Record<string, unknown> = {};
     const pendingStatus = renderer.renderForkStatusCall({ forkId: "review-1234567" }, theme(), { state: statusState });
     assert.equal(text(pendingStatus), "fork_status review-1234567");
-    let invalidations = 0;
     renderer.renderForkStatusResult(
       { content: [{ type: "text", text: "review-1234567: working" }], details: { state: "working" } },
       { expanded: false },
       theme(),
-      { state: statusState, isError: false, invalidate: () => { invalidations += 1; } },
+      { state: statusState, args: { forkId: "review-1234567" }, isError: false, invalidate: () => { throw new Error("must not invalidate while rendering"); } },
     );
+    assert.equal(text(pendingStatus), "fork_status review-1234567: working");
     assert.equal(text(renderer.renderForkStatusCall({ forkId: "review-1234567" }, theme(), { state: statusState })), "fork_status review-1234567: working");
-    renderer.renderForkStatusResult(
-      { content: [], details: { state: "working" } },
-      { expanded: false },
-      theme(),
-      { state: statusState, isError: false, invalidate: () => { invalidations += 1; } },
-    );
-    assert.equal(invalidations, 1);
     assert.equal(
       text(renderer.renderForkStatusResult({ content: [{ type: "text", text: "Not found." }] }, { expanded: false }, theme(), { state: statusState, isError: true, invalidate() {} })),
       "Not found.",
@@ -204,24 +190,23 @@ test("uses semantic theme colors for fork status states", async () => {
   }
 });
 
-test("renders the task only when expanded and keeps creation errors visible", async () => {
+test("renders one expanded task without reentrant invalidation and keeps creation errors visible", async () => {
   const { renderer, cleanup } = await loadRenderer();
   try {
     const state: Record<string, unknown> = {};
-    const collapsed = renderer.renderCreateForkResult(
-      { content: [{ type: "text", text: "review-1234567" }], details: { forkId: "review-1234567" } },
-      { expanded: false },
-      theme(),
-      { state, isError: false, invalidate: () => {} },
-    );
-    assert.equal(text(collapsed), "");
-
+    const call = renderer.renderCreateForkCall({ name: "review", tier: "fast" }, theme(), { state });
     const expanded = renderer.renderCreateForkResult(
-      { content: [], details: { forkId: "review-1234567" } },
+      { content: [{ type: "text", text: "review-1234567" }], details: { forkId: "review-1234567" } },
       { expanded: true },
       theme(),
-      { state, args: { task: "Inspect the controller." }, isError: false, invalidate: () => {} },
+      {
+        state,
+        args: { name: "review", tier: "fast", task: "Inspect the controller." },
+        isError: false,
+        invalidate: () => { throw new Error("must not invalidate while rendering"); },
+      },
     );
+    assert.equal(text(call), "create_fork [fast] review-1234567");
     assert.equal(expanded.children[0].size, 1);
     assert.equal(text(expanded), "─── Task ───\nInspect the controller.");
 
