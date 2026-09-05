@@ -1,4 +1,4 @@
-import { Container, Text } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 
 type RenderContext = {
   args?: { name?: unknown; tier?: unknown; task?: unknown };
@@ -48,6 +48,7 @@ export function renderCreateForkResult(result: any, { expanded }: { expanded: bo
   const task = typeof context.args?.task === "string" ? context.args.task : "";
   if (!task) return new Container();
   const container = new Container();
+  container.addChild(new Spacer(1));
   container.addChild(new Text(theme.fg("muted", "─── Task ───"), 0, 0));
   container.addChild(new Text(theme.fg("dim", task), 0, 0));
   return container;

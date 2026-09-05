@@ -81,6 +81,7 @@ test("renders the task only when expanded and keeps creation errors visible", as
       theme(),
       { state, args: { task: "Inspect the controller." }, isError: false, invalidate: () => {} },
     );
+    assert.equal(expanded.children[0].size, 1);
     assert.equal(text(expanded), "─── Task ───\nInspect the controller.");
 
     const failure = renderer.renderCreateForkResult(
