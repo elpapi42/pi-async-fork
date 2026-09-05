@@ -135,7 +135,7 @@ The extension receives pi-fleet activity in the background. For the first versio
 
 Each active-fork receiver retains the latest pi-fleet `message.finished` text and cursor as its candidate response. It monitors that fork through the public `agent.status()` API, which already attempts pi-fleet worker recovery before returning. The extension continues monitoring `starting` and `working`. Only `idle` confirms settlement. If an idle fork has a candidate response, that response is final.
 
-If an idle fork has no candidate response, or status returns `interrupted` or `failed`, the extension does not attempt its own recovery. It creates a plain situation notice that states the raw pi-fleet status and that no confirmed final response is available.
+If an idle fork has no candidate response, or status returns `interrupted` or `failed`, the extension waits ten seconds from the first terminal-state observation. This simple grace period lets delayed replay deliver a candidate after restart. If no confirmed final response is available after the grace period, the extension does not attempt its own recovery. It creates a plain situation notice that states the raw pi-fleet status and that no confirmed final response is available.
 
 Before finalization or notice handling, the extension confirms that the current active-branch ledger owns the exact fork ID and immutable pi-fleet agent ID. If the owning branch is inactive, the extension does not deliver a result or notice, destroy the fleet agent, or append an entry. It leaves the fleet agent and its replayable activity intact. When that branch becomes active again, the extension reconnects, restores the latest candidate, checks status, and then handles the settled or no-result condition. A fork result or notice must never enter a sibling branch.
 
@@ -375,7 +375,7 @@ Before daily use, prove:
 5. `create_fork` creates the child session and fleet agent, starts reception, receives initial-task acceptance, appends `fork.created`, and returns before the child completes.
 6. Initial creation or task-send failures destroy any created agent, remove the unregistered child session, write no ledger entry, return a clear error, and report cleanup failure when it occurs. Uncertain sends are not retried.
 7. Each receiver retains the latest `message.finished` candidate, while `agent.status()` recovery behavior and `idle` settlement determine finalization.
-8. An idle fork with no candidate, or an interrupted or failed fork, produces a plain situation notice without extension-level recovery, then follows the normal destruction and replay path.
+8. An idle fork with no candidate, or an interrupted or failed fork, waits ten seconds from its first terminal-state observation, produces a plain situation notice without extension-level recovery, and then follows the normal destruction and replay path.
 9. `fork_status` forwards raw pi-fleet states for active forks, treats idle forks as not steerable, and returns `completed` only for historical destroyed forks.
 10. A response or notice reaches the parent once in normal operation with exactly `<forkId>:\n\n<output>` as visible content.
 11. Two completed forks cannot race parent delivery while the parent is idle.
@@ -395,6 +395,8 @@ Use unit tests with a fake pi-fleet SDK and isolated real Pi plus pi-fleet integ
 ## Known limits and open details
 
 - `message.finished` is only a candidate response. Finalization depends on observing `idle` through pi-fleet status monitoring and requires real integration evidence.
+- The ten-second terminal-state grace period is a deliberate first-version heuristic, not proof that pi-fleet replay has caught up. A replay delayed beyond ten seconds can produce a no-result notice instead of the valid response.
+- `steer_fork` checks status before adaptive delivery, but pi-fleet does not make that check and send atomic. A fork can become idle within that small interval.
 - pi-fleet currently defines `failed` publicly but may not assign it in all failure paths. The extension forwards raw returned states and handles any returned `failed` as a no-result condition.
 - Pi and pi-fleet do not share an atomic transaction. The first version accepts rare stale or orphan records and reconciles them conservatively. A failed initial cleanup can still leave an unregistered external agent or child session.
 - Pi branch navigation has restart semantics that need integration testing for a branch-scoped fork inventory.

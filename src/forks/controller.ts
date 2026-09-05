@@ -12,12 +12,12 @@ type Running = Created & {
   registered: boolean;
   candidate?: Candidate;
   state?: AgentState;
-  idleSince?: number;
+  terminalSince?: number;
   finalizing?: boolean;
 };
 
-const NO_OUTPUT_IDLE = "Fork settled without a final assistant response.";
-const SETTLEMENT_GRACE_MS = 2_500;
+const NO_OUTPUT_IDLE = "Fork idle without a confirmed final assistant response.";
+const SETTLEMENT_GRACE_MS = 10_000;
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -55,7 +55,12 @@ export class Controller {
     this.#generation += 1;
     this.#paused = false;
     await this.#agents.start();
-    await this.reconcile(ctx);
+    try {
+      await this.reconcile(ctx);
+    } catch (error) {
+      await this.#agents.stop().catch(() => undefined);
+      throw error;
+    }
   }
 
   async beforeTree(): Promise<void> {
@@ -146,16 +151,24 @@ export class Controller {
         return forkId;
       } catch (error) {
         this.#running.delete(forkId);
-        let cleanupError: unknown;
+        const cleanupFailures: string[] = [];
+        let agentStopped = agent === undefined;
         if (agent) {
-          try { await this.#agents.destroy(agent); } catch (cleanup) { cleanupError = cleanup; }
+          try {
+            await this.#agents.destroy(agent);
+            agentStopped = true;
+          } catch (cleanup) {
+            this.#agents.stopObserving(agent.id);
+            cleanupFailures.push(`Agent cleanup failed: ${errorText(cleanup)}. Child session retained at ${child.path}`);
+          }
         }
-        try { await removeChildSession(child.path); } catch (cleanup) { cleanupError ??= cleanup; }
-        if (error instanceof AgentNameTakenError) {
-          if (cleanupError) throw new Error(`Could not create fork ${forkId}: ${errorText(error)}. Cleanup failed: ${errorText(cleanupError)}`);
-          continue;
+        if (agentStopped) {
+          try { await removeChildSession(child.path); } catch (cleanup) {
+            cleanupFailures.push(`Child-session cleanup failed: ${errorText(cleanup)}`);
+          }
         }
-        const suffix = cleanupError ? `. Cleanup failed: ${errorText(cleanupError)}` : "";
+        if (error instanceof AgentNameTakenError && cleanupFailures.length === 0) continue;
+        const suffix = cleanupFailures.length > 0 ? `. ${cleanupFailures.join(". ")}` : "";
         throw new Error(`Could not create fork ${forkId}: ${errorText(error)}${suffix}`);
       }
     }
@@ -164,16 +177,26 @@ export class Controller {
 
   async steer(ctx: any, forkId: string, message: string, signal?: AbortSignal): Promise<void> {
     this.resume();
-    throwIfAborted(signal);
-    const record = this.activeRecord(ctx, forkId);
-    const running = this.#running.get(forkId);
-    if (!running || running.agentId !== record.agentId) throw new Error(this.#unavailable.get(forkId) ?? `Fork ${forkId} is unavailable in this session.`);
-    const state = await this.#agents.status(running.agent);
-    throwIfAborted(signal);
-    running.state = state;
-    if (state === "idle") throw new Error(`Fork ${forkId} is idle and cannot be steered.`);
-    if (state === "interrupted" || state === "failed") throw new Error(`Fork ${forkId} is ${state} and cannot be steered.`);
-    await this.#agents.steer(running.agent, message);
+    await this.enqueue(async () => {
+      throwIfAborted(signal);
+      const record = this.activeRecord(ctx, forkId);
+      const running = this.#running.get(forkId);
+      if (!running || running.agentId !== record.agentId) throw new Error(this.#unavailable.get(forkId) ?? `Fork ${forkId} is unavailable in this session.`);
+      const state = await this.#agents.status(running.agent);
+      throwIfAborted(signal);
+      running.state = state;
+      if (state === "idle") throw new Error(`Fork ${forkId} is idle and cannot be steered.`);
+      if (state === "interrupted" || state === "failed") throw new Error(`Fork ${forkId} is ${state} and cannot be steered.`);
+      const previousCandidate = running.candidate;
+      running.candidate = undefined;
+      running.terminalSince = undefined;
+      try {
+        await this.#agents.steer(running.agent, message);
+      } catch (error) {
+        running.candidate ??= previousCandidate;
+        throw error;
+      }
+    });
   }
 
   async status(ctx: any, forkId: string): Promise<{ state: AgentState | "completed" }> {
@@ -194,13 +217,12 @@ export class Controller {
       onCandidate: (candidate: Candidate) => {
         if (!this.current(generation, running)) return;
         running.candidate = candidate;
-        running.idleSince = undefined;
         this.schedule(ctx, running, generation);
       },
       onStatus: (state: AgentState) => {
         if (!this.current(generation, running)) return;
         running.state = state;
-        if (state !== "idle") running.idleSince = undefined;
+        if (state === "starting" || state === "working") running.terminalSince = undefined;
         this.schedule(ctx, running, generation);
       },
       onError: (error: unknown) => {
@@ -221,15 +243,13 @@ export class Controller {
       await this.finalize(ctx, running, "response", running.candidate.text, running.candidate.cursor, generation);
       return;
     }
-    if (running.state === "idle") {
-      running.idleSince ??= this.#now();
-      if (this.#now() - running.idleSince >= SETTLEMENT_GRACE_MS) {
-        await this.finalize(ctx, running, "notice", NO_OUTPUT_IDLE, undefined, generation);
-      }
-      return;
-    }
-    if (running.state === "interrupted" || running.state === "failed") {
-      await this.finalize(ctx, running, "notice", `Fork ${running.state} without a confirmed final assistant response.`, undefined, generation);
+    if (running.state === "idle" || running.state === "interrupted" || running.state === "failed") {
+      running.terminalSince ??= this.#now();
+      if (this.#now() - running.terminalSince < SETTLEMENT_GRACE_MS) return;
+      const notice = running.state === "idle"
+        ? NO_OUTPUT_IDLE
+        : `Fork ${running.state} without a confirmed final assistant response.`;
+      await this.finalize(ctx, running, "notice", notice, undefined, generation);
     }
   }
 

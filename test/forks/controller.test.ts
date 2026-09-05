@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -26,14 +26,15 @@ class FakeAgents implements ManagedAgents {
   destroyHook?: () => Promise<void>;
   sent: string[] = [];
   observed = 0;
+  stopped = 0;
   async start() {}
-  async stop() {}
+  async stop() { this.stopped += 1; }
   async create(name: string) { return { ...this.agent, name } as Agent; }
   async restore() { return this.agent; }
   async status() { return this.state; }
   async steer(_agent: Agent, message: string) { this.sent.push(message); }
   observe(_agent: Agent, _after: string | undefined, callbacks: ObserverCallbacks) { this.observed += 1; this.callbacks = callbacks; }
-  stopObserving() {}
+  stopObserving() { this.stopped += 1; }
   async destroy() { this.destroyed += 1; await this.destroyHook?.(); }
   candidate(candidate: Candidate) { this.callbacks?.onCandidate(candidate); }
   statusUpdate(state: AgentState) { this.callbacks?.onStatus(state); }
@@ -206,7 +207,11 @@ test("starts the no-output grace period when idle is observed", async () => {
     agents.statusUpdate("idle");
     await waitForLifecycle();
     assert.equal(agents.destroyed, 0);
-    now += 2_500;
+    now += 9_999;
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    assert.equal(agents.destroyed, 0);
+    now += 1;
     agents.statusUpdate("idle");
     await waitForLifecycle();
     const destroyed = branch.find((item) => item?.data?.type === "fork.destroyed");
@@ -284,6 +289,74 @@ test("does not retain stale reconciliation after delayed restore", async () => {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("retains the child session when failed creation cleanup leaves an agent alive", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  agents.steer = async () => { throw new Error("send failed"); };
+  agents.destroyHook = async () => { throw new Error("destroy failed"); };
+  const controller = new Controller(pi, configuration, agents);
+  try {
+    await assert.rejects(
+      () => controller.create(ctx, "call-1", "research", "Find the answer."),
+      /Agent cleanup failed: destroy failed.*Child session retained/,
+    );
+    assert.equal(branch.some((item) => item?.data?.type === "fork.created"), false);
+    assert.equal(agents.stopped > 0, true);
+    assert.equal((await readdir(join(root, "async-forks"))).length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("serializes accepted steering before automatic destruction", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents);
+  try {
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
+    let sendStarted!: () => void;
+    const started = new Promise<void>((resolve) => { sendStarted = resolve; });
+    let releaseSend!: () => void;
+    const release = new Promise<void>((resolve) => { releaseSend = resolve; });
+    agents.steer = async (_agent, message) => {
+      agents.sent.push(message);
+      sendStarted();
+      await release;
+    };
+    const steering = controller.steer(ctx, forkId, "Continue.");
+    await started;
+    agents.candidate({ text: "Updated answer", cursor: "c2" });
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    assert.equal(agents.destroyed, 0);
+    releaseSend();
+    await steering;
+    await waitForLifecycle();
+    assert.equal(agents.destroyed, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("closes managed agents when startup reconciliation fails", async () => {
+  const created = { type: "fork.created", forkId: "research-0000001", agentId: "agent-1", agentName: "research-0000001", stateDir: "/fleet", sessionPath: "/child", tier: "balanced" };
+  const destroyed = { type: "fork.destroyed", forkId: created.forkId, agentId: created.agentId, kind: "response", output: "Answer", cursor: "c1" };
+  const branch: any[] = [
+    { type: "custom", customType: "pi-async-fork", data: created },
+    { type: "custom", customType: "pi-async-fork", data: destroyed },
+  ];
+  const ctx = { cwd: "/work", sessionManager: { getBranch: () => branch } };
+  const pi = { appendEntry() {}, sendMessage() { throw new Error("delivery failed"); } };
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents);
+  await assert.rejects(() => controller.start(ctx), /delivery failed/);
+  assert.equal(agents.stopped, 1);
 });
 
 test("reports state-directory mismatch and ignores abort after accepted steering", async () => {
