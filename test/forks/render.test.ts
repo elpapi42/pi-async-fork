@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 
 async function loadRenderer() {
   const directory = await mkdtemp(join(tmpdir(), "pi-async-fork-render-"));
+  await writeFile(join(directory, "coding-agent-stub.mjs"), "export function getMarkdownTheme() { return {}; }\n");
   await writeFile(join(directory, "tui-stub.mjs"), `
     export class Text {
       constructor(text, paddingX, paddingY) { this.text = text; this.paddingX = paddingX; this.paddingY = paddingY; }
@@ -17,9 +18,15 @@ async function loadRenderer() {
       addChild(child) { this.children.push(child); }
     }
     export class Spacer { constructor(size) { this.size = size; } }
+    export class Markdown { constructor(text, paddingX, paddingY, theme) { this.text = text; this.paddingX = paddingX; this.paddingY = paddingY; this.theme = theme; } }
   `);
   const source = await readFile(join(process.cwd(), "src/forks/render.ts"), "utf8");
-  await writeFile(join(directory, "render.ts"), source.replace('from "@earendil-works/pi-tui"', 'from "./tui-stub.mjs"'));
+  await writeFile(
+    join(directory, "render.ts"),
+    source
+      .replace('from "@earendil-works/pi-coding-agent"', 'from "./coding-agent-stub.mjs"')
+      .replace('from "@earendil-works/pi-tui"', 'from "./tui-stub.mjs"'),
+  );
   return {
     renderer: await import(`${pathToFileURL(join(directory, "render.ts")).href}?t=${Date.now()}`),
     cleanup: () => rm(directory, { recursive: true, force: true }),
@@ -58,6 +65,36 @@ test("renders pending and completed fork IDs in the call line", async () => {
       { state, isError: false, invalidate: () => { invalidations += 1; } },
     );
     assert.equal(invalidations, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("renders fork result messages without duplicating the fork ID", async () => {
+  const { renderer, cleanup } = await loadRenderer();
+  try {
+    const response = renderer.renderForkResultMessage(
+      { content: "research-1234567:\n\nResult with `code`.", details: { forkId: "research-1234567", kind: "response" } },
+      { outputPad: 2 },
+      theme(),
+    );
+    assert.equal(text(response), "✓ fork research-1234567\nResult with `code`.");
+    assert.equal(response.children[0].paddingX, 2);
+    assert.equal(response.children[2].paddingX, 2);
+
+    const notice = renderer.renderForkResultMessage(
+      { content: "research-1234567:\n\nNo final response.", details: { forkId: "research-1234567", kind: "notice" } },
+      {},
+      theme(),
+    );
+    assert.equal(text(notice), "⚠ fork research-1234567\nNo final response.");
+
+    const legacy = renderer.renderForkResultMessage(
+      { content: "research-1234567:\n\nLegacy result.", details: { forkId: "research-1234567" } },
+      {},
+      theme(),
+    );
+    assert.equal(text(legacy), "• fork research-1234567\nLegacy result.");
   } finally {
     await cleanup();
   }

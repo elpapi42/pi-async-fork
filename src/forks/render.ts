@@ -1,4 +1,5 @@
-import { Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 
 type RenderContext = {
   args?: { name?: unknown; tier?: unknown; task?: unknown };
@@ -26,6 +27,29 @@ function callText(args: RenderContext["args"], forkId: unknown, theme: any): str
   const tier = typeof args?.tier === "string" ? args.tier : "balanced";
   const id = typeof forkId === "string" ? forkId : pendingId(args);
   return `${theme.fg("toolTitle", theme.bold("fork"))} ${theme.fg("muted", `[${tier}]`)} ${theme.fg("accent", id)}`;
+}
+
+function resultBody(content: unknown, forkId: unknown): string {
+  if (typeof content !== "string") return "";
+  if (typeof forkId !== "string") return content;
+  const prefix = `${forkId}:\n\n`;
+  return content.startsWith(prefix) ? content.slice(prefix.length) : content;
+}
+
+export function renderForkResultMessage(message: any, { outputPad = 0 }: { outputPad?: number }, theme: any) {
+  const forkId = typeof message?.details?.forkId === "string" ? message.details.forkId : "unknown";
+  const kind = message?.details?.kind;
+  const icon = kind === "response"
+    ? theme.fg("success", "✓")
+    : kind === "notice"
+      ? theme.fg("warning", "⚠")
+      : theme.fg("muted", "•");
+  const header = `${icon} ${theme.fg("toolTitle", theme.bold("fork"))} ${theme.fg("accent", forkId)}`;
+  const container = new Container();
+  container.addChild(new Text(header, outputPad, 0));
+  container.addChild(new Spacer(1));
+  container.addChild(new Markdown(resultBody(message?.content, message?.details?.forkId), outputPad, 0, getMarkdownTheme()));
+  return container;
 }
 
 export function renderCreateForkCall(args: any, theme: any, context: RenderContext) {

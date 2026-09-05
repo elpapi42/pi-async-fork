@@ -81,6 +81,7 @@ test("registers only after task acceptance and finalizes a settled candidate", a
     assert.equal(destroyed.data.output, "Answer");
     assert.equal(sent.length, 1);
     assert.equal(sent[0].content, `${forkId}:\n\nAnswer`);
+    assert.equal(sent[0].details.kind, "response");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -289,6 +290,7 @@ test("replays completed output only when parent metadata has no match", async ()
   try {
     await controller.start(ctx);
     assert.equal(sent.length, 1);
+    assert.equal(sent[0].details.kind, "response");
     branch.push({ type: "custom_message", customType: "pi-async-fork-result", details: { forkId: created.forkId, agentId: created.agentId, cursor: "c1" } });
     await controller.afterTree(ctx);
     assert.equal(sent.length, 1);

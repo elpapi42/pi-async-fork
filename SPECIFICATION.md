@@ -58,6 +58,8 @@ The `create_fork` tool description and its `name` parameter description must sta
 
 In the Pi TUI, the collapsed call is one content line: `fork [<tier>] <fork ID>`. Before creation returns the generated ID, it shows `<name>-…`. The expanded view adds the full task under `─── Task ───`. Normal result output, activity, usage, cost, and an expansion hint remain hidden. A failed creation shows its error text. The displayed ID is the public fork ID, not pi-fleet's internal agent UUID.
 
+Fork result custom messages retain the model-visible envelope `<forkId>:\n\n<output>`. A dedicated TUI renderer instead shows `✓ fork <forkId>` for a response or `⚠ fork <forkId>` for a notice, followed by a blank line and Markdown output. Delivery metadata carries `kind: "response" | "notice"` for this display only. Legacy result messages without `kind` use a neutral marker. The renderer does not expose pi-fleet agent IDs or cursors.
+
 ### `steer_fork`
 
 ```text
@@ -343,7 +345,7 @@ The `forks/` directory is one cohesive feature boundary. Its files use that dire
 - `forks/ledger.ts` owns `fork.created` and `fork.destroyed` entry shapes, active-branch projection, historical lookup, lifecycle writes, and replayable output records.
 - `forks/session.ts` owns the current tool-call cut, invoking-assistant projection, linked synthetic assistant boundary entry, retained child JSONL creation, and unregistered-session cleanup after creation failure.
 - `forks/agent.ts` is the only module that imports the public pi-fleet SDK. It owns client lifetime, agent creation and restoration, status monitoring, activity receivers, serialized steering, and destruction.
-- `forks/delivery.ts` is the only module that calls `pi.sendMessage()`. It owns serialized parent delivery, the exact visible envelope, internal metadata, and replay detection.
+- `forks/delivery.ts` is the only module that calls `pi.sendMessage()`. It owns serialized parent delivery, the model-visible envelope, display metadata including result kind, and replay detection.
 - `forks/render.ts` owns the `create_fork` TUI call and result rendering. It transfers the returned public fork ID through Pi's row-local renderer state and never renders normal fork output or activity.
 - `forks/task-prompt.ts` owns the synthetic assistant boundary text, including identity, inherited-context framing, bounded-worker instructions, and the required `Output` and `Learnings` report contract. The controller sends the assigned task unchanged as the next user message.
 
@@ -393,7 +395,8 @@ Before daily use, prove:
 20. Fork names enforce the one-or-two-word rule in the tool and parameter descriptions, reject agent-supplied numbers, and produce IDs with exactly seven generated digits.
 21. Fork IDs avoid current-branch history collisions and retry pi-fleet name collisions.
 22. The collapsed `create_fork` TUI call is one content line with tier and public fork ID, the pending state uses `<name>-…`, and the expanded view adds only the full task. Normal result output, activity, usage, cost, and expansion hints remain hidden, while creation errors remain visible.
-23. The extension does not imply workspace isolation or safe concurrent writes.
+23. Result custom-message content remains `<forkId>:\n\n<output>` for model context. Its TUI renderer shows response and notice status, the public fork ID once, a blank line, and Markdown output without internal agent IDs or cursors.
+24. The extension does not imply workspace isolation or safe concurrent writes.
 
 Use unit tests with a fake pi-fleet SDK and isolated real Pi plus pi-fleet integration tests. Unit tests alone cannot prove RPC startup, agent-directory selection, session loading, steering delivery, or recovery.
 

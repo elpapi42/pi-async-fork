@@ -1,4 +1,4 @@
-import { RESULT_TYPE, isDelivered } from "./ledger.js";
+import { RESULT_TYPE, isDelivered, type Destroyed } from "./ledger.js";
 
 export function formatOutput(forkId: string, output: string): string {
   return `${forkId}:\n\n${output}`;
@@ -7,14 +7,14 @@ export function formatOutput(forkId: string, output: string): string {
 export class Delivery {
   #tail = Promise.resolve();
 
-  deliver(pi: any, forkId: string, agentId: string, output: string, cursor: string | undefined): Promise<void> {
+  deliver(pi: any, forkId: string, agentId: string, kind: Destroyed["kind"], output: string, cursor: string | undefined): Promise<void> {
     const work = this.#tail.catch(() => undefined).then(() => {
       pi.sendMessage(
         {
           customType: RESULT_TYPE,
           content: formatOutput(forkId, output),
           display: true,
-          details: { forkId, agentId, cursor },
+          details: { forkId, agentId, kind, cursor },
         },
         { deliverAs: "steer", triggerTurn: true },
       );

@@ -92,7 +92,7 @@ export class Controller {
       if (!this.isGeneration(generation)) return;
       if (record.destroyed) {
         if (!this.#delivery.wasDelivered(ctx.sessionManager.getBranch(), record.forkId, record.agentId, record.destroyed.cursor)) {
-          await this.#delivery.deliver(this.#pi, record.forkId, record.agentId, record.destroyed.output, record.destroyed.cursor);
+          await this.#delivery.deliver(this.#pi, record.forkId, record.agentId, record.destroyed.kind, record.destroyed.output, record.destroyed.cursor);
         }
         continue;
       }
@@ -263,7 +263,7 @@ export class Controller {
       const destroyed: Destroyed = { type: "fork.destroyed", forkId: running.forkId, agentId: running.agentId, kind, output, cursor };
       appendDestroyed(this.#pi, destroyed);
       this.#running.delete(running.forkId);
-      await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, output, cursor);
+      await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, kind, output, cursor);
     } finally {
       running.finalizing = false;
     }

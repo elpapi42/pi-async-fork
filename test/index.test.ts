@@ -8,9 +8,11 @@ import register from "../src/index.js";
 test("registers the three public tools with naming guidance", () => {
   const tools: any[] = [];
   const events = new Map<string, Function>();
+  const messageRenderers = new Map<string, Function>();
   register({
     on(name: string, handler: Function) { events.set(name, handler); },
     registerTool(tool: unknown) { tools.push(tool); },
+    registerMessageRenderer(type: string, renderer: Function) { messageRenderers.set(type, renderer); },
   });
   assert.deepEqual(tools.map((tool) => tool.name), ["create_fork", "steer_fork", "fork_status"]);
   assert.match(tools[0].description, /one or two short lowercase letter-only words/);
@@ -19,6 +21,7 @@ test("registers the three public tools with naming guidance", () => {
   assert.ok(events.has("session_before_tree"));
   assert.ok(events.has("session_shutdown"));
   assert.ok(events.has("session_tree"));
+  assert.ok(messageRenderers.has("pi-async-fork-result"));
 });
 
 test("keeps tools available with a clear error when startup configuration is absent", async () => {
@@ -31,6 +34,7 @@ test("keeps tools available with a clear error when startup configuration is abs
     register({
       on(name: string, handler: Function) { events.set(name, handler); },
       registerTool(tool: unknown) { tools.push(tool); },
+      registerMessageRenderer() {},
     });
     await events.get("session_start")?.({}, { cwd: "/definitely-missing-pi-async-fork-settings" });
     await assert.rejects(
