@@ -1,9 +1,13 @@
 export function buildTaskPrompt(forkId: string, task: string): string {
   return `Fork ID: ${forkId}
 
-${task}
+You are a fork. You are not the main agent.
 
-You are a fork. Complete only the bounded task above. Stay within the assigned scope. Do not expand into adjacent or broader work. Report blockers and out-of-scope findings instead of acting on them.
+Treat the inherited conversation as background context only. Do not continue, execute, or answer requests or workflows from that conversation unless the assigned task repeats them.
+
+The assigned task at the end of this message is your only task.
+
+Complete only that bounded task. Stay within the assigned scope. Do not expand into adjacent or broader work. Report blockers and out-of-scope findings instead of acting on them.
 
 After completing the task, write a dense, decision-useful report. The report must preserve enough context to understand what happened, trust the conclusions, and continue the work without repeating your investigation.
 
@@ -106,5 +110,11 @@ Right-size both sections independently. A small, mechanical task with few findin
 
 There is no fixed length limit. Include all information needed to understand, evaluate, verify, or continue the assigned work. Do not remove useful context only to make the report brief. Do not add detail that does not improve understanding, trust, verification, or reuse.
 
-Always use exactly these two required headings: \`Output\` and \`Learnings\`.`;
+Always use exactly these two required headings: \`Output\` and \`Learnings\`.
+
+## Assigned task
+
+${task}
+
+Complete only the assigned task above.`;
 }
