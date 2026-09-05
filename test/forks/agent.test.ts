@@ -7,6 +7,25 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+test("omits agentDir from pi-fleet creation when the default profile is requested", async () => {
+  const options: any[] = [];
+  const agent = { id: "agent-1", name: "research-0000001" } as Agent;
+  const client = { create(value: unknown) { options.push(value); return Promise.resolve(agent); } };
+  const agents = new Agents("/state", async () => client as any);
+  await agents.create("research-0000001", "/work", undefined, ["--session", "/child"]);
+  assert.deepEqual(options, [{ name: "research-0000001", cwd: "/work", piArgs: ["--session", "/child"] }]);
+  assert.equal(Object.hasOwn(options[0], "agentDir"), false);
+});
+
+test("passes a configured agentDir to pi-fleet creation", async () => {
+  const options: any[] = [];
+  const agent = { id: "agent-1", name: "research-0000001" } as Agent;
+  const client = { create(value: unknown) { options.push(value); return Promise.resolve(agent); } };
+  const agents = new Agents("/state", async () => client as any);
+  await agents.create("research-0000001", "/work", "/profile", ["--session", "/child"]);
+  assert.equal(options[0].agentDir, "/profile");
+});
+
 test("polls one status request at a time and reports transport errors separately", async () => {
   let calls = 0;
   let release!: () => void;

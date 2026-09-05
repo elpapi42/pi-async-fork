@@ -18,7 +18,7 @@ type Observer = {
 export interface ManagedAgents {
   start(): Promise<void>;
   stop(): Promise<void>;
-  create(name: string, cwd: string, agentDir: string, piArgs: string[]): Promise<Agent>;
+  create(name: string, cwd: string, agentDir: string | undefined, piArgs: string[]): Promise<Agent>;
   restore(name: string, agentId: string): Promise<Agent>;
   status(agent: Agent): Promise<AgentState>;
   steer(agent: Agent, message: string): Promise<void>;
@@ -29,16 +29,18 @@ export interface ManagedAgents {
 
 export class Agents implements ManagedAgents {
   readonly #stateDir: string;
+  readonly #connect: typeof connectPiFleet;
   #client: PiFleetClient | undefined;
   readonly #observers = new Map<string, Observer>();
   readonly #sendTails = new Map<string, Promise<void>>();
 
-  constructor(stateDir: string) {
+  constructor(stateDir: string, connect: typeof connectPiFleet = connectPiFleet) {
     this.#stateDir = stateDir;
+    this.#connect = connect;
   }
 
   async start(): Promise<void> {
-    this.#client ??= await connectPiFleet({ stateDir: this.#stateDir });
+    this.#client ??= await this.#connect({ stateDir: this.#stateDir });
   }
 
   async stop(): Promise<void> {
@@ -47,8 +49,8 @@ export class Agents implements ManagedAgents {
     this.#client = undefined;
   }
 
-  async create(name: string, cwd: string, agentDir: string, piArgs: string[]): Promise<Agent> {
-    return (await this.client()).create({ name, cwd, agentDir, piArgs });
+  async create(name: string, cwd: string, agentDir: string | undefined, piArgs: string[]): Promise<Agent> {
+    return (await this.client()).create({ name, cwd, ...(agentDir ? { agentDir } : {}), piArgs });
   }
 
   async restore(name: string, agentId: string): Promise<Agent> {

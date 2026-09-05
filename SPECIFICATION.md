@@ -268,9 +268,9 @@ Configuration lives under `pi-async-fork` in normal Pi settings.
 }
 ```
 
-The configuration has five concepts only:
+The configuration has four concepts only:
 
-- `agentDir`: complete global Pi profile for every fork;
+- `agentDir`: optional complete global Pi profile for every fork. Omit it, or set it to `null`, to let pi-fleet use Pi's default profile. A project `null` overrides a configured global path;
 - `stateDir`: pi-fleet state-directory selector;
 - `fast`, `balanced`, and `deep`: model and thinking profiles.
 
@@ -282,7 +282,7 @@ Global and project settings both apply. Project scalar settings replace global v
 
 Pi's default agent directory is `~/.pi/agent`. `PI_CODING_AGENT_DIR` selects another global Pi profile before Pi starts.
 
-The fork `agentDir` is the complete worker-profile boundary. It can contain its own `settings.json`, `SYSTEM.md`, `AGENTS.md`, extensions, skills, prompts, themes, model definitions, package resources, and credentials policy.
+When configured, the fork `agentDir` is the complete worker-profile boundary. It can contain its own `settings.json`, `SYSTEM.md`, `AGENTS.md`, extensions, skills, prompts, themes, model definitions, package resources, and credentials policy. When it is omitted or `null`, pi-fleet starts the worker with Pi's default agent directory instead.
 
 The profile controls stable resources and extensions. It must not contain fork-specific identity, bounded-worker instructions, task text, or report instructions. These change per fork and belong in the final user prompt, so the stable system and history prefix remains cacheable.
 
@@ -382,7 +382,7 @@ Before daily use, prove:
 12. Automatic destruction occurs only when the owning branch is active, follows the required finalization order, writes replayable output to `fork.destroyed`, and does not delete the child session file.
 13. A response or notice is not delivered, destroyed, or recorded while its owning branch is inactive, and later finalizes when that branch becomes active.
 14. Session restart rebuilds active fork inventory, reconnects receivers, and resends undelivered output from `fork.destroyed` only when custom-message metadata has no match.
-15. Machine or worker recovery preserves the persisted `agentDir` profile.
+15. Machine or worker recovery preserves the configured `agentDir` profile, or continues with the default profile when no `agentDir` is configured.
 16. Name reuse with a different immutable pi-fleet agent ID is detected and never adopted.
 17. Parent session replacement or branch change prevents stale receiver delivery.
 18. The final worker prompt includes per-fork identity, bounded-worker instructions, task, and the two-section report contract, while the profile system prompt remains stable.

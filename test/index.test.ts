@@ -28,6 +28,6 @@ test("keeps tools available with a clear error when startup configuration is abs
   await events.get("session_start")?.({}, { cwd: "/definitely-missing-pi-async-fork-settings" });
   await assert.rejects(
     () => tools.find((tool) => tool.name === "fork_status").execute("call", { forkId: "research-1234567" }, new AbortController().signal, undefined, { cwd: "/definitely-missing-pi-async-fork-settings" }),
-    /pi-async-fork\.agentDir is required/,
+    /pi-async-fork\.stateDir is required/,
   );
 });
