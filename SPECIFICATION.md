@@ -342,7 +342,7 @@ The `forks/` directory is one cohesive feature boundary. Its files use that dire
 - `forks/session.ts` owns the current tool-call cut, invoking-assistant projection, retained child JSONL creation, and unregistered-session cleanup after creation failure.
 - `forks/agent.ts` is the only module that imports the public pi-fleet SDK. It owns client lifetime, agent creation and restoration, status monitoring, activity receivers, serialized steering, and destruction.
 - `forks/delivery.ts` is the only module that calls `pi.sendMessage()`. It owns serialized parent delivery, the exact visible envelope, internal metadata, and replay detection.
-- `forks/task-prompt.ts` appends each fork's identity, inherited-context boundary, bounded-worker instructions, required `Output` and `Learnings` report contract, and the assigned task as the final section of the final user prompt.
+- `forks/task-prompt.ts` appends each fork's identity, states that inherited assistant messages belong to another agent and inherited requests are inactive, forbids orchestration-tool searches, includes bounded-worker instructions and the required `Output` and `Learnings` report contract, and places the sole active task in a final `<assigned_task>` block.
 
 Types remain with the module that owns their meaning. The first version has no generic `utils`, `helpers`, `models`, `constants`, shared-code directory, repository abstraction, generic pi-fleet wrapper, custom database, cost footer, subprocess runner, JSONL event parser, generic environment configuration, or copied `pi-fork` architecture.
 
@@ -385,7 +385,7 @@ Before daily use, prove:
 15. Machine or worker recovery preserves the configured `agentDir` profile, or continues with the default profile when no `agentDir` is configured.
 16. Name reuse with a different immutable pi-fleet agent ID is detected and never adopted.
 17. Parent session replacement or branch change prevents stale receiver delivery.
-18. The final worker prompt identifies the worker as a fork, treats inherited requests as background context, keeps the profile system prompt stable, and places the assigned task after the two-section report contract as the last substantive instruction.
+18. The final worker prompt identifies the worker as a fork rather than the main agent, assigns inherited assistant messages to another agent, marks inherited requests inactive, keeps the profile system prompt stable, and places the sole active task in a final `<assigned_task>` block followed by an execution directive.
 19. Fork names enforce the one-or-two-word rule in the tool and parameter descriptions, reject agent-supplied numbers, and produce IDs with exactly seven generated digits.
 20. Fork IDs avoid current-branch history collisions and retry pi-fleet name collisions.
 21. The extension does not imply workspace isolation or safe concurrent writes.
