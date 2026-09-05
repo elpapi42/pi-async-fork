@@ -44,3 +44,34 @@ test("polls one status request at a time and reports transport errors separately
   assert.equal(errors.length, 1);
   assert.match(String(errors[0]), /temporary transport failure/);
 });
+
+test("absorbs a receiver close failure", async () => {
+  const agent = {
+    id: "agent-2",
+    name: "research-0000002",
+    async status() { return { state: "working" }; },
+    receive() {
+      return {
+        [Symbol.asyncIterator]() {
+          return {
+            next: async () => await new Promise(() => undefined),
+            return: async () => { throw new Error("close failed"); },
+          };
+        },
+      };
+    },
+  } as unknown as Agent;
+  const agents = new Agents("/unused");
+  const unhandled: unknown[] = [];
+  const onUnhandled = (error: unknown) => unhandled.push(error);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    agents.observe(agent, undefined, { onCandidate() {}, onStatus() {}, onError() {} });
+    await wait(10);
+    agents.stopObserving(agent.id);
+    await wait(10);
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});

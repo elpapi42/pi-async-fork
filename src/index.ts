@@ -7,15 +7,31 @@ const ID_DESCRIPTION = "Use the complete fork ID returned by create_fork. Do not
 
 export default function register(pi: any): void {
   let controller: Controller | undefined;
+  let unavailable: string | undefined;
 
   const getController = (ctx: any): Controller => {
-    if (!controller) controller = new Controller(pi, loadConfiguration(ctx.cwd));
+    if (unavailable) throw new Error(unavailable);
+    if (!controller) {
+      try {
+        controller = new Controller(pi, loadConfiguration(ctx.cwd));
+      } catch (error) {
+        unavailable = error instanceof Error ? error.message : String(error);
+        throw new Error(unavailable);
+      }
+    }
     return controller;
   };
 
   pi.on("session_start", async (_event: unknown, ctx: any) => {
-    controller = new Controller(pi, loadConfiguration(ctx.cwd));
-    await controller.start(ctx);
+    controller = undefined;
+    unavailable = undefined;
+    try {
+      controller = new Controller(pi, loadConfiguration(ctx.cwd));
+      await controller.start(ctx);
+    } catch (error) {
+      controller = undefined;
+      unavailable = error instanceof Error ? error.message : String(error);
+    }
   });
 
   pi.on("session_before_tree", async () => {

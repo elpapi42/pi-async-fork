@@ -33,3 +33,18 @@ test("matches delivered result metadata exactly", () => {
   assert.equal(isDelivered(entries, created.forkId, created.agentId, "c1"), true);
   assert.equal(isDelivered(entries, created.forkId, created.agentId, "c2"), false);
 });
+
+test("ignores malformed lifecycle records", () => {
+  const malformedCreated = { ...created, agentName: undefined };
+  const malformedDestroyed = {
+    type: "fork.destroyed",
+    forkId: created.forkId,
+    agentId: created.agentId,
+    kind: "response",
+    output: "done",
+    cursor: 1,
+  };
+
+  const records = project([entry(malformedCreated), entry(malformedDestroyed)]);
+  assert.equal(records.size, 0);
+});

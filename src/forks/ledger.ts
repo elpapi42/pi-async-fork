@@ -28,9 +28,20 @@ export type ManagedFork = Created & { destroyed?: Destroyed };
 function isLifecycleRecord(value: unknown): value is LifecycleRecord {
   if (!value || typeof value !== "object") return false;
   const raw = value as globalThis.Record<string, unknown>;
-  if (raw.type === "fork.created") return typeof raw.forkId === "string" && typeof raw.agentId === "string";
-  return raw.type === "fork.destroyed" && typeof raw.forkId === "string" && typeof raw.agentId === "string"
-    && (raw.kind === "response" || raw.kind === "notice") && typeof raw.output === "string";
+  if (raw.type === "fork.created") {
+    return typeof raw.forkId === "string"
+      && typeof raw.agentId === "string"
+      && typeof raw.agentName === "string"
+      && typeof raw.stateDir === "string"
+      && typeof raw.sessionPath === "string"
+      && (raw.tier === "fast" || raw.tier === "balanced" || raw.tier === "deep");
+  }
+  return raw.type === "fork.destroyed"
+    && typeof raw.forkId === "string"
+    && typeof raw.agentId === "string"
+    && (raw.kind === "response" || raw.kind === "notice")
+    && typeof raw.output === "string"
+    && (raw.cursor === undefined || typeof raw.cursor === "string");
 }
 
 function customData(entry: any): LifecycleRecord | undefined {

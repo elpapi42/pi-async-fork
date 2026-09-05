@@ -274,7 +274,7 @@ The configuration has five concepts only:
 - `stateDir`: pi-fleet state-directory selector;
 - `fast`, `balanced`, and `deep`: model and thinking profiles.
 
-The selected profile maps to Pi model flags when the agent is created. A missing or invalid selected profile makes `create_fork` return a configuration error.
+The selected profile maps to Pi model flags when the agent is created. A missing or invalid selected profile leaves the auto-discovered extension inactive and makes all three tools return the same configuration error. It must not fail Pi session startup. Reload or restart Pi after adding valid configuration.
 
 Global and project settings both apply. Project scalar settings replace global values. A project tier replaces the matching global tier as one complete profile.
 

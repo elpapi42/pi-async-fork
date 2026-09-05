@@ -37,11 +37,18 @@ export class Controller {
   #generation = 0;
   #paused = false;
   #lifecycleTail: Promise<void> = Promise.resolve();
+  readonly #now: () => number;
 
-  constructor(pi: any, configuration: Configuration, agents: ManagedAgents = new Agents(configuration.stateDir)) {
+  constructor(
+    pi: any,
+    configuration: Configuration,
+    agents: ManagedAgents = new Agents(configuration.stateDir),
+    now: () => number = Date.now,
+  ) {
     this.#pi = pi;
     this.#configuration = configuration;
     this.#agents = agents;
+    this.#now = now;
   }
 
   async start(ctx: any): Promise<void> {
@@ -102,6 +109,7 @@ export class Controller {
   }
 
   async create(ctx: any, toolCallId: string, name: string, task: string, tier: Tier = "balanced", signal?: AbortSignal): Promise<string> {
+    this.resume();
     const existingIds = new Set(project(ctx.sessionManager.getBranch()).keys());
     for (let attempt = 0; attempt < maxIdAttempts; attempt += 1) {
       throwIfAborted(signal);
@@ -132,7 +140,6 @@ export class Controller {
         this.#running.set(forkId, running);
         this.observe(ctx, running, this.#generation);
         await this.#agents.steer(agent, buildTaskPrompt(forkId, task));
-        throwIfAborted(signal);
         appendCreated(this.#pi, created);
         running.registered = true;
         this.schedule(ctx, running, this.#generation);
@@ -167,7 +174,6 @@ export class Controller {
     if (state === "idle") throw new Error(`Fork ${forkId} is idle and cannot be steered.`);
     if (state === "interrupted" || state === "failed") throw new Error(`Fork ${forkId} is ${state} and cannot be steered.`);
     await this.#agents.steer(running.agent, message);
-    throwIfAborted(signal);
   }
 
   async status(ctx: any, forkId: string): Promise<{ state: AgentState | "completed" }> {
@@ -216,8 +222,8 @@ export class Controller {
       return;
     }
     if (running.state === "idle") {
-      running.idleSince ??= Date.now();
-      if (Date.now() - running.idleSince >= SETTLEMENT_GRACE_MS) {
+      running.idleSince ??= this.#now();
+      if (this.#now() - running.idleSince >= SETTLEMENT_GRACE_MS) {
         await this.finalize(ctx, running, "notice", NO_OUTPUT_IDLE, undefined, generation);
       }
       return;

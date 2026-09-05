@@ -17,3 +17,17 @@ test("registers the three public tools with naming guidance", () => {
   assert.ok(events.has("session_shutdown"));
   assert.ok(events.has("session_tree"));
 });
+
+test("keeps tools available with a clear error when startup configuration is absent", async () => {
+  const tools: any[] = [];
+  const events = new Map<string, Function>();
+  register({
+    on(name: string, handler: Function) { events.set(name, handler); },
+    registerTool(tool: unknown) { tools.push(tool); },
+  });
+  await events.get("session_start")?.({}, { cwd: "/definitely-missing-pi-async-fork-settings" });
+  await assert.rejects(
+    () => tools.find((tool) => tool.name === "fork_status").execute("call", { forkId: "research-1234567" }, new AbortController().signal, undefined, { cwd: "/definitely-missing-pi-async-fork-settings" }),
+    /pi-async-fork\.agentDir is required/,
+  );
+});

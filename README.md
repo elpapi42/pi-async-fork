@@ -22,6 +22,8 @@ Add this to global or project Pi settings:
 
 The fork profile controls child resources and extensions. Version one must not load `pi-async-fork`, so recursive async forks stay disabled.
 
+After adding or changing this configuration, run `/reload` or restart Pi. Until valid configuration exists, the extension stays inactive and its tools return the configuration error.
+
 ## Development
 
 ```bash

@@ -86,7 +86,7 @@ export class Agents implements ManagedAgents {
     observer.stopped = true;
     if (observer.timer) clearTimeout(observer.timer);
     observer.wake?.();
-    void observer.iterator?.return?.();
+    void observer.iterator?.return?.().catch(() => undefined);
     this.#observers.delete(agentId);
   }
 
