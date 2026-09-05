@@ -137,7 +137,7 @@ export class Controller {
           forkId,
           agentId: agent.id,
           agentName: agent.name,
-          stateDir: this.#configuration.stateDir,
+          ...(this.#configuration.stateDir ? { stateDir: this.#configuration.stateDir } : {}),
           sessionPath: child.path,
           tier,
         };

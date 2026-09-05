@@ -271,18 +271,18 @@ Configuration lives under `pi-async-fork` in normal Pi settings.
 The configuration has four concepts only:
 
 - `agentDir`: optional complete global Pi profile for every fork. Omit it, or set it to `null`, to let pi-fleet use Pi's default profile. A project `null` overrides a configured global path;
-- `stateDir`: pi-fleet state-directory selector;
+- `stateDir`: optional pi-fleet state-directory selector. Omit it, or set it to `null`, to use pi-fleet's default `~/.pi-fleet` state directory. A project `null` overrides a configured global path;
 - `fast`, `balanced`, and `deep`: model and thinking profiles.
 
 The selected profile maps to Pi model flags when the agent is created. A missing or invalid selected profile leaves the auto-discovered extension inactive and makes all three tools return the same configuration error. It must not fail Pi session startup. Reload or restart Pi after adding valid configuration.
 
-Global and project settings both apply. Project scalar settings replace global values. A project tier replaces the matching global tier as one complete profile.
+Global and project settings both apply. Project scalar settings replace global values. A project `null` for `agentDir` or `stateDir` explicitly selects the corresponding Pi or pi-fleet default. A project tier replaces the matching global tier as one complete profile.
 
 ## Fork Pi profile
 
 Pi's default agent directory is `~/.pi/agent`. `PI_CODING_AGENT_DIR` selects another global Pi profile before Pi starts.
 
-When configured, the fork `agentDir` is the complete worker-profile boundary. It can contain its own `settings.json`, `SYSTEM.md`, `AGENTS.md`, extensions, skills, prompts, themes, model definitions, package resources, and credentials policy. When it is omitted or `null`, pi-fleet starts the worker with Pi's default agent directory instead.
+When configured, the fork `agentDir` is the complete worker-profile boundary. It can contain its own `settings.json`, `SYSTEM.md`, `AGENTS.md`, extensions, skills, prompts, themes, model definitions, package resources, and credentials policy. When it is omitted or `null`, pi-fleet starts the worker with Pi's default agent directory instead. When `stateDir` is omitted or `null`, the extension omits the SDK option and pi-fleet uses `~/.pi-fleet`.
 
 The profile controls stable resources and extensions. It must not contain fork-specific identity, bounded-worker instructions, task text, or report instructions. These change per fork and belong in the final user prompt, so the stable system and history prefix remains cacheable.
 

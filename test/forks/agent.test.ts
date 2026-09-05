@@ -7,6 +7,31 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+test("omits stateDir from pi-fleet connection when the default state is requested", async () => {
+  const options: any[] = [];
+  const client = { close() { return Promise.resolve(); } };
+  const agents = new Agents(undefined, async (value: unknown) => {
+    options.push(value);
+    return client as any;
+  });
+  await agents.start();
+  await agents.stop();
+  assert.deepEqual(options, [{}]);
+  assert.equal(Object.hasOwn(options[0], "stateDir"), false);
+});
+
+test("passes a configured stateDir to pi-fleet connection", async () => {
+  const options: any[] = [];
+  const client = { close() { return Promise.resolve(); } };
+  const agents = new Agents("/state", async (value: unknown) => {
+    options.push(value);
+    return client as any;
+  });
+  await agents.start();
+  await agents.stop();
+  assert.equal(options[0].stateDir, "/state");
+});
+
 test("omits agentDir from pi-fleet creation when the default profile is requested", async () => {
   const options: any[] = [];
   const agent = { id: "agent-1", name: "research-0000001" } as Agent;

@@ -23,6 +23,12 @@ test("projects active and completed fork history", () => {
   assert.equal(active(entries).has(created.forkId), false);
 });
 
+test("projects a creation record without a custom state directory", () => {
+  const defaultState = { ...created } as Record<string, unknown>;
+  delete defaultState.stateDir;
+  assert.equal(project([entry(defaultState)]).get(created.forkId)?.stateDir, undefined);
+});
+
 test("does not accept a destroy record for another agent identity", () => {
   const records = project([entry(created), entry({ type: "fork.destroyed", forkId: created.forkId, agentId: "other", kind: "notice", output: "done" })]);
   assert.equal(records.get(created.forkId)?.destroyed, undefined);

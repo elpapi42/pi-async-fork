@@ -63,7 +63,34 @@ test("uses the default Pi profile when agentDir is missing or project-null", asy
   }
 });
 
-test("rejects invalid agentDir values", async () => {
+test("uses the default pi-fleet state directory when stateDir is missing or project-null", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-config-"));
+  const cwd = join(root, "project");
+  const agentDir = join(root, "agent");
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  try {
+    await mkdir(join(cwd, ".pi"), { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    await writeFile(join(agentDir, "settings.json"), JSON.stringify({
+      "pi-async-fork": { stateDir: "fleet", fast: profile("fast"), balanced: profile("balanced"), deep: profile("deep") },
+    }));
+    await writeFile(join(cwd, ".pi", "settings.json"), JSON.stringify({ "pi-async-fork": { stateDir: null } }));
+    assert.equal(loadConfiguration(cwd).stateDir, undefined);
+
+    await writeFile(join(agentDir, "settings.json"), JSON.stringify({
+      "pi-async-fork": { fast: profile("fast"), balanced: profile("balanced"), deep: profile("deep") },
+    }));
+    await writeFile(join(cwd, ".pi", "settings.json"), JSON.stringify({ "pi-async-fork": {} }));
+    assert.equal(loadConfiguration(cwd).stateDir, undefined);
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects invalid optional directory values", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-async-fork-config-"));
   const cwd = join(root, "project");
   const agentDir = join(root, "agent");
@@ -78,6 +105,8 @@ test("rejects invalid agentDir values", async () => {
     for (const value of ["", 42, false, []]) {
       await writeFile(join(cwd, ".pi", "settings.json"), JSON.stringify({ "pi-async-fork": { agentDir: value } }));
       assert.throws(() => loadConfiguration(cwd), /pi-async-fork\.agentDir/);
+      await writeFile(join(cwd, ".pi", "settings.json"), JSON.stringify({ "pi-async-fork": { stateDir: value } }));
+      assert.throws(() => loadConfiguration(cwd), /pi-async-fork\.stateDir/);
     }
   } finally {
     if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;

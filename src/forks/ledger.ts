@@ -8,7 +8,7 @@ export type Created = {
   forkId: string;
   agentId: string;
   agentName: string;
-  stateDir: string;
+  stateDir?: string;
   sessionPath: string;
   tier: Tier;
 };
@@ -32,7 +32,7 @@ function isLifecycleRecord(value: unknown): value is LifecycleRecord {
     return typeof raw.forkId === "string"
       && typeof raw.agentId === "string"
       && typeof raw.agentName === "string"
-      && typeof raw.stateDir === "string"
+      && (raw.stateDir === undefined || typeof raw.stateDir === "string")
       && typeof raw.sessionPath === "string"
       && (raw.tier === "fast" || raw.tier === "balanced" || raw.tier === "deep");
   }

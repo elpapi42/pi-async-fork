@@ -86,6 +86,36 @@ test("registers only after task acceptance and finalizes a settled candidate", a
   }
 });
 
+test("omits the state directory from a default-state fork record", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, { ...configuration, stateDir: undefined }, agents);
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    const created = branch.find((item) => item?.data?.type === "fork.created");
+    assert.equal(Object.hasOwn(created.data, "stateDir"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("restores a default-state record only with the default current state", async () => {
+  const created = { type: "fork.created", forkId: "research-0000001", agentId: "agent-1", agentName: "research-0000001", sessionPath: "/child", tier: "balanced" };
+  const branch: any[] = [{ type: "custom", customType: "pi-async-fork", data: created }];
+  const { pi, ctx } = harness("/work", branch);
+  const defaultAgents = new FakeAgents();
+  const defaultController = new Controller(pi, { ...configuration, stateDir: undefined }, defaultAgents);
+  await defaultController.start(ctx);
+  assert.equal(defaultAgents.observed, 1);
+
+  const customAgents = new FakeAgents();
+  const customController = new Controller(pi, configuration, customAgents);
+  await customController.start(ctx);
+  await assert.rejects(() => customController.status(ctx, created.forkId), /different pi-fleet state directory/);
+});
+
 test("drains active finalization before a session tree transition", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
   const branch: any[] = [{ type: "message", id: "assistant", parentId: "user", message: {

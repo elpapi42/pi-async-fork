@@ -14,7 +14,7 @@ export type TierProfile = {
 
 export type Configuration = {
   agentDir?: string;
-  stateDir: string;
+  stateDir?: string;
   profiles: Record<Tier, TierProfile>;
 };
 
@@ -45,9 +45,9 @@ function resolvePath(value: unknown, sourceFile: string, key: string): string | 
   return resolve(dirname(sourceFile), value);
 }
 
-function resolveAgentDir(value: unknown, sourceFile: string): string | null | undefined {
+function resolveOptionalPath(value: unknown, sourceFile: string, key: "agentDir" | "stateDir"): string | null | undefined {
   if (value === undefined || value === null) return value;
-  return resolvePath(value, sourceFile, "agentDir");
+  return resolvePath(value, sourceFile, key);
 }
 
 function profile(value: unknown, sourceFile: string, tier: Tier): TierProfile | undefined {
@@ -71,11 +71,12 @@ export function loadConfiguration(cwd: string): Configuration {
   const global = readNamespace(globalFile);
   const project = readNamespace(projectFile);
 
-  const projectAgentDir = resolveAgentDir(project.agentDir, projectFile);
-  const globalAgentDir = resolveAgentDir(global.agentDir, globalFile);
+  const projectAgentDir = resolveOptionalPath(project.agentDir, projectFile, "agentDir");
+  const globalAgentDir = resolveOptionalPath(global.agentDir, globalFile, "agentDir");
   const agentDir = projectAgentDir === undefined ? globalAgentDir ?? undefined : projectAgentDir ?? undefined;
-  const stateDir = resolvePath(project.stateDir, projectFile, "stateDir") ?? resolvePath(global.stateDir, globalFile, "stateDir");
-  if (!stateDir) throw new Error("pi-async-fork.stateDir is required in global or project settings.");
+  const projectStateDir = resolveOptionalPath(project.stateDir, projectFile, "stateDir");
+  const globalStateDir = resolveOptionalPath(global.stateDir, globalFile, "stateDir");
+  const stateDir = projectStateDir === undefined ? globalStateDir ?? undefined : projectStateDir ?? undefined;
 
   const profiles = {} as Record<Tier, TierProfile>;
   for (const tier of TIERS) {

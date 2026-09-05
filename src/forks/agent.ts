@@ -28,19 +28,19 @@ export interface ManagedAgents {
 }
 
 export class Agents implements ManagedAgents {
-  readonly #stateDir: string;
+  readonly #stateDir: string | undefined;
   readonly #connect: typeof connectPiFleet;
   #client: PiFleetClient | undefined;
   readonly #observers = new Map<string, Observer>();
   readonly #sendTails = new Map<string, Promise<void>>();
 
-  constructor(stateDir: string, connect: typeof connectPiFleet = connectPiFleet) {
+  constructor(stateDir: string | undefined, connect: typeof connectPiFleet = connectPiFleet) {
     this.#stateDir = stateDir;
     this.#connect = connect;
   }
 
   async start(): Promise<void> {
-    this.#client ??= await this.#connect({ stateDir: this.#stateDir });
+    this.#client ??= await this.#connect(this.#stateDir ? { stateDir: this.#stateDir } : {});
   }
 
   async stop(): Promise<void> {
