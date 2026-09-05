@@ -1,0 +1,40 @@
+{
+  "name": "pi-async-fork",
+  "version": "0.1.0",
+  "description": "Durable asynchronous fork extension for Pi.",
+  "type": "module",
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "tsx --test 'test/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "pi",
+    "fork",
+    "async",
+    "delegation",
+    "pi-package"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@elpapi42/pi-fleet-sdk": "^0.13.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6",
+    "typescript": "^5.8.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.85.0",
+    "@sinclair/typebox": ">=0.34.0"
+  }
+}
