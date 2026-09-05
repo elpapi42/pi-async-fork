@@ -2,7 +2,15 @@ import { Type } from "@sinclair/typebox";
 import { loadConfiguration, TIERS, type Tier } from "./configuration.js";
 import { Controller } from "./forks/controller.js";
 import { RESULT_TYPE } from "./forks/ledger.js";
-import { renderCreateForkCall, renderCreateForkResult, renderForkResultMessage } from "./forks/render.js";
+import {
+  renderCreateForkCall,
+  renderCreateForkResult,
+  renderForkResultMessage,
+  renderForkStatusCall,
+  renderForkStatusResult,
+  renderSteerForkCall,
+  renderSteerForkResult,
+} from "./forks/render.js";
 
 const NAME_DESCRIPTION = "Choose one or two short lowercase letter-only words, separated by one hyphen if there are two. Do not add numbers. The tool appends a generated seven-digit suffix and returns the complete fork ID. Use that returned ID for later calls.";
 const ID_DESCRIPTION = "Use the complete fork ID returned by create_fork. Do not shorten, modify, or reconstruct it.";
@@ -76,6 +84,8 @@ export default function register(pi: any): void {
       forkId: Type.String({ description: ID_DESCRIPTION }),
       message: Type.String({ description: "Follow-up work or steering instruction." }),
     }),
+    renderCall: renderSteerForkCall,
+    renderResult: renderSteerForkResult,
     async execute(_toolCallId: string, params: { forkId: string; message: string }, signal: AbortSignal, _onUpdate: any, ctx: any) {
       await getController(ctx).steer(ctx, params.forkId, params.message, signal);
       return { content: [{ type: "text", text: `Steering accepted for ${params.forkId}.` }] };
@@ -87,6 +97,8 @@ export default function register(pi: any): void {
     label: "Async fork status",
     description: `Get the current status of an async fork. ${ID_DESCRIPTION}`,
     parameters: Type.Object({ forkId: Type.String({ description: ID_DESCRIPTION }) }),
+    renderCall: renderForkStatusCall,
+    renderResult: renderForkStatusResult,
     async execute(_toolCallId: string, params: { forkId: string }, _signal: AbortSignal, _onUpdate: any, ctx: any) {
       const status = await getController(ctx).status(ctx, params.forkId);
       return { content: [{ type: "text", text: `${params.forkId}: ${status.state}` }], details: status };

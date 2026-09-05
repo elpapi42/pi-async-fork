@@ -2,7 +2,7 @@ import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 
 type RenderContext = {
-  args?: { name?: unknown; tier?: unknown; task?: unknown };
+  args?: { name?: unknown; tier?: unknown; task?: unknown; forkId?: unknown; message?: unknown };
   state: Record<string, unknown>;
   lastComponent?: unknown;
   isError?: boolean;
@@ -23,10 +23,30 @@ function pendingId(args: RenderContext["args"]): string {
   return `${name}-…`;
 }
 
-function callText(args: RenderContext["args"], forkId: unknown, theme: any): string {
+function createCallText(args: RenderContext["args"], forkId: unknown, theme: any): string {
   const tier = typeof args?.tier === "string" ? args.tier : "balanced";
   const id = typeof forkId === "string" ? forkId : pendingId(args);
-  return `${theme.fg("toolTitle", theme.bold("fork"))} ${theme.fg("muted", `[${tier}]`)} ${theme.fg("accent", id)}`;
+  return `${theme.fg("toolTitle", theme.bold("create_fork"))} ${theme.fg("muted", `[${tier}]`)} ${theme.fg("accent", id)}`;
+}
+
+function forkId(args: RenderContext["args"]): string {
+  return typeof args?.forkId === "string" ? args.forkId : "unknown";
+}
+
+function section(title: string, body: unknown): Container {
+  const container = new Container();
+  container.addChild(new Spacer(1));
+  container.addChild(new Text(title, 0, 0));
+  container.addChild(new Text(typeof body === "string" ? body : "", 0, 0));
+  return container;
+}
+
+function statusColor(state: string, theme: any): string {
+  if (state === "completed") return theme.fg("success", state);
+  if (state === "working") return theme.fg("accent", state);
+  if (state === "starting" || state === "idle") return theme.fg("warning", state);
+  if (state === "interrupted" || state === "failed") return theme.fg("error", state);
+  return theme.fg("muted", state);
 }
 
 function resultBody(content: unknown, forkId: unknown): string {
@@ -60,26 +80,46 @@ export function renderForkResultMessage(message: any, _options: { outputPad?: nu
 
 export function renderCreateForkCall(args: any, theme: any, context: RenderContext) {
   const component = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-  component.setText(callText(args, context.state.forkId, theme));
+  component.setText(createCallText(args, context.state.forkId, theme));
   return component;
 }
 
 export function renderCreateForkResult(result: any, { expanded }: { expanded: boolean }, theme: any, context: RenderContext) {
-  const forkId = result?.details?.forkId;
-  if (!context.isError && typeof forkId === "string" && context.state.forkId !== forkId) {
-    context.state.forkId = forkId;
+  const id = result?.details?.forkId;
+  if (!context.isError && typeof id === "string" && context.state.forkId !== id) {
+    context.state.forkId = id;
     context.invalidate();
   }
 
   const output = textContent(result);
   if (context.isError) return new Text(theme.fg("error", output || "Fork creation failed."), 0, 0);
-  if (!expanded) return new Container();
+  if (!expanded || typeof context.args?.task !== "string") return new Container();
+  return section(theme.fg("muted", "─── Task ───"), theme.fg("dim", context.args.task));
+}
 
-  const task = typeof context.args?.task === "string" ? context.args.task : "";
-  if (!task) return new Container();
-  const container = new Container();
-  container.addChild(new Spacer(1));
-  container.addChild(new Text(theme.fg("muted", "─── Task ───"), 0, 0));
-  container.addChild(new Text(theme.fg("dim", task), 0, 0));
-  return container;
+export function renderSteerForkCall(args: any, theme: any, _context: RenderContext) {
+  return new Text(`${theme.fg("toolTitle", theme.bold("steer_fork"))} ${theme.fg("accent", forkId(args))}`, 0, 0);
+}
+
+export function renderSteerForkResult(result: any, { expanded }: { expanded: boolean }, theme: any, context: RenderContext) {
+  const output = textContent(result);
+  if (context.isError) return new Text(theme.fg("error", output || "Fork steering failed."), 0, 0);
+  if (!expanded || typeof context.args?.message !== "string") return new Container();
+  return section(theme.fg("muted", "─── Message ───"), theme.fg("dim", context.args.message));
+}
+
+export function renderForkStatusCall(args: any, theme: any, context: RenderContext) {
+  const state = typeof context.state.status === "string" ? `: ${statusColor(context.state.status, theme)}` : "";
+  return new Text(`${theme.fg("toolTitle", theme.bold("fork_status"))} ${theme.fg("accent", forkId(args))}${state}`, 0, 0);
+}
+
+export function renderForkStatusResult(result: any, _options: { expanded: boolean }, theme: any, context: RenderContext) {
+  const state = result?.details?.state;
+  if (!context.isError && typeof state === "string" && context.state.status !== state) {
+    context.state.status = state;
+    context.invalidate();
+  }
+  const output = textContent(result);
+  if (context.isError) return new Text(theme.fg("error", output || "Fork status failed."), 0, 0);
+  return new Container();
 }

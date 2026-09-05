@@ -54,7 +54,7 @@ test("renders pending and completed fork IDs in the call line", async () => {
   try {
     const state: Record<string, unknown> = {};
     const pending = renderer.renderCreateForkCall({ name: "review", tier: "fast" }, theme(), { state });
-    assert.equal(text(pending), "fork [fast] review-…");
+    assert.equal(text(pending), "create_fork [fast] review-…");
 
     let invalidations = 0;
     renderer.renderCreateForkResult(
@@ -64,7 +64,7 @@ test("renders pending and completed fork IDs in the call line", async () => {
       { state, isError: false, invalidate: () => { invalidations += 1; } },
     );
     const completed = renderer.renderCreateForkCall({ name: "review", tier: "fast" }, theme(), { state, lastComponent: pending });
-    assert.equal(text(completed), "fork [fast] review-1234567");
+    assert.equal(text(completed), "create_fork [fast] review-1234567");
     renderer.renderCreateForkResult(
       { content: [], details: { forkId: "review-1234567" } },
       { expanded: false },
@@ -112,6 +112,85 @@ test("renders fork result messages without duplicating the fork ID", async () =>
       theme(),
     );
     assert.equal(text(legacy), "• fork research-1234567\nLegacy result.");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("renders steering and status calls without successful result output", async () => {
+  const { renderer, cleanup } = await loadRenderer();
+  try {
+    const steerState: Record<string, unknown> = {};
+    const steerCall = renderer.renderSteerForkCall({ forkId: "review-1234567" }, theme(), { state: steerState });
+    assert.equal(text(steerCall), "steer_fork review-1234567");
+    assert.equal(
+      text(renderer.renderSteerForkResult({ content: [{ type: "text", text: "Steering accepted." }] }, { expanded: false }, theme(), { state: steerState, isError: false, invalidate() {} })),
+      "",
+    );
+    const expandedSteer = renderer.renderSteerForkResult(
+      { content: [] },
+      { expanded: true },
+      theme(),
+      { state: steerState, args: { message: "Inspect the controller first." }, isError: false, invalidate() {} },
+    );
+    assert.equal(expandedSteer.children[0].size, 1);
+    assert.equal(text(expandedSteer), "─── Message ───\nInspect the controller first.");
+    assert.equal(
+      text(renderer.renderSteerForkResult({ content: [{ type: "text", text: "Fork is not active." }] }, { expanded: false }, theme(), { state: steerState, isError: true, invalidate() {} })),
+      "Fork is not active.",
+    );
+
+    const statusState: Record<string, unknown> = {};
+    const pendingStatus = renderer.renderForkStatusCall({ forkId: "review-1234567" }, theme(), { state: statusState });
+    assert.equal(text(pendingStatus), "fork_status review-1234567");
+    let invalidations = 0;
+    renderer.renderForkStatusResult(
+      { content: [{ type: "text", text: "review-1234567: working" }], details: { state: "working" } },
+      { expanded: false },
+      theme(),
+      { state: statusState, isError: false, invalidate: () => { invalidations += 1; } },
+    );
+    assert.equal(text(renderer.renderForkStatusCall({ forkId: "review-1234567" }, theme(), { state: statusState })), "fork_status review-1234567: working");
+    renderer.renderForkStatusResult(
+      { content: [], details: { state: "working" } },
+      { expanded: false },
+      theme(),
+      { state: statusState, isError: false, invalidate: () => { invalidations += 1; } },
+    );
+    assert.equal(invalidations, 1);
+    assert.equal(
+      text(renderer.renderForkStatusResult({ content: [{ type: "text", text: "Not found." }] }, { expanded: false }, theme(), { state: statusState, isError: true, invalidate() {} })),
+      "Not found.",
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("uses semantic theme colors for fork status states", async () => {
+  const { renderer, cleanup } = await loadRenderer();
+  try {
+    const colorTheme = {
+      ...theme(),
+      fg: (color: string, value: string) => `<${color}>${value}</${color}>`,
+    };
+    const mappings = [
+      ["completed", "success"],
+      ["working", "accent"],
+      ["starting", "warning"],
+      ["idle", "warning"],
+      ["interrupted", "error"],
+      ["failed", "error"],
+      ["future-state", "muted"],
+    ];
+    for (const [state, color] of mappings) {
+      const call = renderer.renderForkStatusCall(
+        { forkId: "review-1234567" },
+        colorTheme,
+        { state: { status: state } },
+      );
+      assert.match(text(call), new RegExp(`<${color}>${state}</${color}>$`));
+    }
   } finally {
     await cleanup();
   }

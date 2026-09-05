@@ -56,7 +56,7 @@ The `create_fork` tool description and its `name` parameter description must sta
 
 `tier` accepts `fast`, `balanced`, or `deep`. The fixed default is `balanced`.
 
-In the Pi TUI, the collapsed call is one content line: `fork [<tier>] <fork ID>`. Before creation returns the generated ID, it shows `<name>-…`. The expanded view adds the full task under `─── Task ───`. Normal result output, activity, usage, cost, and an expansion hint remain hidden. A failed creation shows its error text. The displayed ID is the public fork ID, not pi-fleet's internal agent UUID.
+In the Pi TUI, `create_fork` uses one content line: `create_fork [<tier>] <fork ID>`. Before creation returns the generated ID, it shows `<name>-…`. The expanded view adds the full task under `─── Task ───`. `steer_fork` uses `steer_fork <fork ID>` and adds the full steering message under `─── Message ───` only when expanded. `fork_status` uses `fork_status <fork ID>: <state>` after its result returns and has no expanded content. Brackets apply only to the `create_fork` tier. Normal successful result output, activity, usage, cost, and expansion hints remain hidden. Tool errors remain visible. The displayed ID is the public fork ID, not pi-fleet's internal agent UUID.
 
 Fork result custom messages retain the model-visible envelope `<forkId>:\n\n<output>`. A dedicated TUI renderer instead shows `✓ fork <forkId>` for a response or `⚠ fork <forkId>` for a notice, followed by a blank line and Markdown output. It uses the active theme's `customMessageBg` panel and `customMessageText` body color so the result remains distinct from user and assistant messages. Delivery metadata carries `kind: "response" | "notice"` for this display only. Legacy result messages without `kind` use a neutral marker. The renderer does not expose pi-fleet agent IDs or cursors.
 
@@ -394,7 +394,7 @@ Before daily use, prove:
 19. The synthetic assistant boundary identifies the worker as a fork rather than the main agent, assigns inherited assistant messages to the main agent, marks inherited requests inactive, and contains the two-section report contract. The next user message contains only the assigned task.
 20. Fork names enforce the one-or-two-word rule in the tool and parameter descriptions, reject agent-supplied numbers, and produce IDs with exactly seven generated digits.
 21. Fork IDs avoid current-branch history collisions and retry pi-fleet name collisions.
-22. The collapsed `create_fork` TUI call is one content line with tier and public fork ID, the pending state uses `<name>-…`, and the expanded view adds only the full task. Normal result output, activity, usage, cost, and expansion hints remain hidden, while creation errors remain visible.
+22. The collapsed `create_fork` TUI call is one content line with its tier and public fork ID, the pending state uses `<name>-…`, and the expanded view adds only the full task. `steer_fork` and `fork_status` use their exact tool names as headers, the steering message appears only when expanded, and status appends its state after a result. Normal successful result output, activity, usage, cost, and expansion hints remain hidden, while tool errors remain visible.
 23. Result custom-message content remains `<forkId>:\n\n<output>` for model context. Its TUI renderer shows response and notice status, the public fork ID once, a blank line, and Markdown output without internal agent IDs or cursors.
 24. The extension does not imply workspace isolation or safe concurrent writes.
 
