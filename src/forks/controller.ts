@@ -5,7 +5,6 @@ import { Delivery } from "./delivery.js";
 import { createId, maxIdAttempts } from "./identity.js";
 import { active, appendCreated, appendDestroyed, project, type Created, type Destroyed } from "./ledger.js";
 import { createChildSession, removeChildSession } from "./session.js";
-import { buildTaskPrompt } from "./task-prompt.js";
 
 type Running = Created & {
   agent: Agent;
@@ -121,7 +120,7 @@ export class Controller {
       const forkId = createId(name);
       if (existingIds.has(forkId)) continue;
       existingIds.add(forkId);
-      const child = await createChildSession(ctx.sessionManager, toolCallId);
+      const child = await createChildSession(ctx.sessionManager, toolCallId, forkId);
       let agent: Agent | undefined;
       try {
         const profile = this.#configuration.profiles[tier];
@@ -144,7 +143,7 @@ export class Controller {
         const running: Running = { ...created, agent, registered: false };
         this.#running.set(forkId, running);
         this.observe(ctx, running, this.#generation);
-        await this.#agents.steer(agent, buildTaskPrompt(forkId, task));
+        await this.#agents.steer(agent, task);
         appendCreated(this.#pi, created);
         running.registered = true;
         this.schedule(ctx, running, this.#generation);

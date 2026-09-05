@@ -1,8 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { buildForkBoundary } from "./task-prompt.js";
 
 export type ChildSession = { path: string };
+
+function zeroUsage() {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+}
 
 function hasToolCall(message: any, toolCallId: string): boolean {
   return message?.role === "assistant" && Array.isArray(message.content)
@@ -12,8 +24,7 @@ function hasToolCall(message: any, toolCallId: string): boolean {
 export function projectInvokingAssistant(entry: any): any | undefined {
   const message = entry.message;
   const content = message.content.filter((block: any) => block?.type !== "toolCall");
-  const hasText = content.some((block: any) => block?.type === "text" && typeof block.text === "string" && block.text.trim());
-  if (!hasText) return undefined;
+  if (content.length === 0) return undefined;
   return {
     ...entry,
     message: {
@@ -24,7 +35,27 @@ export function projectInvokingAssistant(entry: any): any | undefined {
   };
 }
 
-export async function createChildSession(sessionManager: any, toolCallId: string): Promise<ChildSession> {
+export function createForkBoundary(entry: any, parentId: string | null | undefined, forkId: string): any {
+  const timestamp = Date.now();
+  const message = { ...entry.message };
+  delete message.responseId;
+  return {
+    type: "message",
+    id: randomUUID(),
+    parentId,
+    timestamp: new Date(timestamp).toISOString(),
+    message: {
+      ...message,
+      role: "assistant",
+      content: [{ type: "text", text: buildForkBoundary(forkId) }],
+      stopReason: "stop",
+      timestamp,
+      usage: zeroUsage(),
+    },
+  };
+}
+
+export async function createChildSession(sessionManager: any, toolCallId: string, forkId: string): Promise<ChildSession> {
   const branch = sessionManager.getBranch();
   let boundary = -1;
   for (let index = branch.length - 1; index >= 0; index -= 1) {
@@ -41,6 +72,7 @@ export async function createChildSession(sessionManager: any, toolCallId: string
   const projected = [...branch.slice(0, boundary)];
   const assistant = projectInvokingAssistant(branch[boundary]);
   if (assistant) projected.push(assistant);
+  projected.push(createForkBoundary(branch[boundary], assistant?.id ?? branch[boundary].parentId, forkId));
 
   const directory = join(dirname(parentPath), "async-forks");
   const sessionId = randomUUID();
