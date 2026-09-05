@@ -1,5 +1,5 @@
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 
 type RenderContext = {
   args?: { name?: unknown; tier?: unknown; task?: unknown };
@@ -36,7 +36,7 @@ function resultBody(content: unknown, forkId: unknown): string {
   return content.startsWith(prefix) ? content.slice(prefix.length) : content;
 }
 
-export function renderForkResultMessage(message: any, { outputPad = 0 }: { outputPad?: number }, theme: any) {
+export function renderForkResultMessage(message: any, _options: { outputPad?: number }, theme: any) {
   const forkId = typeof message?.details?.forkId === "string" ? message.details.forkId : "unknown";
   const kind = message?.details?.kind;
   const icon = kind === "response"
@@ -45,11 +45,17 @@ export function renderForkResultMessage(message: any, { outputPad = 0 }: { outpu
       ? theme.fg("warning", "⚠")
       : theme.fg("muted", "•");
   const header = `${icon} ${theme.fg("toolTitle", theme.bold("fork"))} ${theme.fg("accent", forkId)}`;
-  const container = new Container();
-  container.addChild(new Text(header, outputPad, 0));
-  container.addChild(new Spacer(1));
-  container.addChild(new Markdown(resultBody(message?.content, message?.details?.forkId), outputPad, 0, getMarkdownTheme()));
-  return container;
+  const box = new Box(1, 1, (text: string) => theme.bg("customMessageBg", text));
+  box.addChild(new Text(header, 0, 0));
+  box.addChild(new Spacer(1));
+  box.addChild(new Markdown(
+    resultBody(message?.content, message?.details?.forkId),
+    0,
+    0,
+    getMarkdownTheme(),
+    { color: (text: string) => theme.fg("customMessageText", text) },
+  ));
+  return box;
 }
 
 export function renderCreateForkCall(args: any, theme: any, context: RenderContext) {

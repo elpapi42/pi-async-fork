@@ -58,7 +58,7 @@ The `create_fork` tool description and its `name` parameter description must sta
 
 In the Pi TUI, the collapsed call is one content line: `fork [<tier>] <fork ID>`. Before creation returns the generated ID, it shows `<name>-…`. The expanded view adds the full task under `─── Task ───`. Normal result output, activity, usage, cost, and an expansion hint remain hidden. A failed creation shows its error text. The displayed ID is the public fork ID, not pi-fleet's internal agent UUID.
 
-Fork result custom messages retain the model-visible envelope `<forkId>:\n\n<output>`. A dedicated TUI renderer instead shows `✓ fork <forkId>` for a response or `⚠ fork <forkId>` for a notice, followed by a blank line and Markdown output. Delivery metadata carries `kind: "response" | "notice"` for this display only. Legacy result messages without `kind` use a neutral marker. The renderer does not expose pi-fleet agent IDs or cursors.
+Fork result custom messages retain the model-visible envelope `<forkId>:\n\n<output>`. A dedicated TUI renderer instead shows `✓ fork <forkId>` for a response or `⚠ fork <forkId>` for a notice, followed by a blank line and Markdown output. It uses the active theme's `customMessageBg` panel and `customMessageText` body color so the result remains distinct from user and assistant messages. Delivery metadata carries `kind: "response" | "notice"` for this display only. Legacy result messages without `kind` use a neutral marker. The renderer does not expose pi-fleet agent IDs or cursors.
 
 ### `steer_fork`
 

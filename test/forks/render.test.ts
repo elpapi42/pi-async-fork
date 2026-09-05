@@ -17,8 +17,11 @@ async function loadRenderer() {
       constructor() { this.children = []; }
       addChild(child) { this.children.push(child); }
     }
+    export class Box extends Container {
+      constructor(paddingX, paddingY, bgFn) { super(); this.paddingX = paddingX; this.paddingY = paddingY; this.bgFn = bgFn; }
+    }
     export class Spacer { constructor(size) { this.size = size; } }
-    export class Markdown { constructor(text, paddingX, paddingY, theme) { this.text = text; this.paddingX = paddingX; this.paddingY = paddingY; this.theme = theme; } }
+    export class Markdown { constructor(text, paddingX, paddingY, theme, options) { this.text = text; this.paddingX = paddingX; this.paddingY = paddingY; this.theme = theme; this.options = options; } }
   `);
   const source = await readFile(join(process.cwd(), "src/forks/render.ts"), "utf8");
   await writeFile(
@@ -34,7 +37,11 @@ async function loadRenderer() {
 }
 
 function theme() {
-  return { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+  return {
+    fg: (_color: string, text: string) => text,
+    bg: (_color: string, text: string) => text,
+    bold: (text: string) => text,
+  };
 }
 
 function text(component: any): string {
@@ -73,14 +80,24 @@ test("renders pending and completed fork IDs in the call line", async () => {
 test("renders fork result messages without duplicating the fork ID", async () => {
   const { renderer, cleanup } = await loadRenderer();
   try {
+    const colors: string[] = [];
+    const renderTheme = {
+      ...theme(),
+      fg: (color: string, text: string) => { colors.push(color); return text; },
+      bg: (color: string, text: string) => { colors.push(color); return text; },
+    };
     const response = renderer.renderForkResultMessage(
       { content: "research-1234567:\n\nResult with `code`.", details: { forkId: "research-1234567", kind: "response" } },
       { outputPad: 2 },
-      theme(),
+      renderTheme,
     );
     assert.equal(text(response), "✓ fork research-1234567\nResult with `code`.");
-    assert.equal(response.children[0].paddingX, 2);
-    assert.equal(response.children[2].paddingX, 2);
+    assert.equal(response.paddingX, 1);
+    assert.equal(response.paddingY, 1);
+    assert.equal(response.bgFn("panel"), "panel");
+    assert.equal(response.children[2].options.color("body"), "body");
+    assert.ok(colors.includes("customMessageBg"));
+    assert.ok(colors.includes("customMessageText"));
 
     const notice = renderer.renderForkResultMessage(
       { content: "research-1234567:\n\nNo final response.", details: { forkId: "research-1234567", kind: "notice" } },
