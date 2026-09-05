@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { loadConfiguration, TIERS, type Tier } from "./configuration.js";
 import { Controller } from "./forks/controller.js";
+import { renderCreateForkCall, renderCreateForkResult } from "./forks/render.js";
 
 const NAME_DESCRIPTION = "Choose one or two short lowercase letter-only words, separated by one hyphen if there are two. Do not add numbers. The tool appends a generated seven-digit suffix and returns the complete fork ID. Use that returned ID for later calls.";
 const ID_DESCRIPTION = "Use the complete fork ID returned by create_fork. Do not shorten, modify, or reconstruct it.";
@@ -56,6 +57,8 @@ export default function register(pi: any): void {
       task: Type.String({ description: "Bounded work for the fork." }),
       tier: Type.Optional(Type.Union(TIERS.map((tier) => Type.Literal(tier)))),
     }),
+    renderCall: renderCreateForkCall,
+    renderResult: renderCreateForkResult,
     async execute(toolCallId: string, params: { name: string; task: string; tier?: Tier }, signal: AbortSignal, _onUpdate: any, ctx: any) {
       const forkId = await getController(ctx).create(ctx, toolCallId, params.name, params.task, params.tier ?? "balanced", signal);
       return { content: [{ type: "text", text: forkId }], details: { forkId } };
