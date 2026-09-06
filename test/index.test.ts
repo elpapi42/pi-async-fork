@@ -21,8 +21,13 @@ test("registers the three public tools with focused task and effort guidance", (
   assert.doesNotMatch(tools[0].description, /Use it to offload/);
   assert.match(tools[0].description, /one or two short lowercase letter-only words/);
   assert.match(tools[0].parameters.properties.task.description, /ambiguities outside that authority/);
-  assert.match(tools[0].parameters.properties.effort.description, /quick lookups, simple checks, or narrow validation/);
-  assert.match(tools[0].parameters.properties.effort.description, /normal exploration, implementation, and testing/);
+  assert.match(tools[0].parameters.properties.effort.description, /primary cognitive job and required reasoning depth/);
+  assert.match(tools[0].parameters.properties.effort.description, /bounded read-only evidence gathering/);
+  assert.match(tools[0].parameters.properties.effort.description, /does not make final judgments, recommendations, diagnoses, approval or gate decisions, or changes/);
+  assert.match(tools[0].parameters.properties.effort.description, /bounded judgment or settled execution/);
+  assert.match(tools[0].parameters.properties.effort.description, /frontier uncertainty or the hardest reasoning/);
+  assert.match(tools[0].parameters.properties.effort.description, /Effort changes reasoning depth, not task scope/);
+  assert.match(tools[0].parameters.properties.effort.description, /If fast evidence needs judgment, use balanced; if it exposes complex uncertainty, use deep/);
   assert.match(tools[0].parameters.properties.effort.description, /If unsure, use balanced/);
   assert.equal(Object.hasOwn(tools[0].parameters.properties, "tier"), false);
   assert.match(tools[1].description, /active async fork/);
