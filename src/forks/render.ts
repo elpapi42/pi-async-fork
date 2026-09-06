@@ -143,22 +143,26 @@ export function renderSteerForkResult(result: any, { expanded }: { expanded: boo
   return section(theme.fg("muted", "─── Message ───"), theme.fg("dim", context.args.message));
 }
 
+function statusCallText(args: RenderContext["args"], state: unknown, description: unknown, theme: any): string {
+  const resolvedState = typeof state === "string" ? `: ${statusColor(state, theme)}` : "";
+  const resolvedDescription = descriptionText(description);
+  return `${theme.fg("toolTitle", theme.bold("fork_status"))} ${theme.fg("accent", forkId(args))}${resolvedDescription ? theme.fg("muted", ` · ${resolvedDescription}`) : ""}${resolvedState}`;
+}
+
 export function renderForkStatusCall(args: any, theme: any, context: RenderContext) {
-  const state = typeof context.state.status === "string" ? `: ${statusColor(context.state.status, theme)}` : "";
   const component = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
   context.state.statusCallComponent = component;
-  component.setText(`${theme.fg("toolTitle", theme.bold("fork_status"))} ${theme.fg("accent", forkId(args))}${state}`);
+  component.setText(statusCallText(args, context.state.status, context.state.statusDescription, theme));
   return component;
 }
 
 export function renderForkStatusResult(result: any, _options: { expanded: boolean }, theme: any, context: RenderContext) {
   const state = result?.details?.state;
-  if (!context.isError && typeof state === "string" && context.state.status !== state) {
+  if (!context.isError && typeof state === "string") {
     context.state.status = state;
+    context.state.statusDescription = result?.details?.description;
     const callComponent = context.state.statusCallComponent;
-    if (callComponent instanceof Text) {
-      callComponent.setText(`${theme.fg("toolTitle", theme.bold("fork_status"))} ${theme.fg("accent", forkId(context.args))}: ${statusColor(state, theme)}`);
-    }
+    if (callComponent instanceof Text) callComponent.setText(statusCallText(context.args, state, result?.details?.description, theme));
   }
   const output = textContent(result);
   if (context.isError) return new Text(theme.fg("error", output || "Fork status failed."), 0, 0);

@@ -842,6 +842,7 @@ test("fork status reports raw state without reordering lifecycle observation", a
     agents.activity();
     const result = await controller.status(ctx, forkId);
     assert.equal(result.state, "working");
+    assert.equal(result.description, "Find the requested answer");
     assert.equal(sent.length, 0);
 
     agents.statusUpdate("working");

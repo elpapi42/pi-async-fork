@@ -168,13 +168,26 @@ test("renders steering and status calls without successful result output", async
     const pendingStatus = renderer.renderForkStatusCall({ forkId: "review-1234567" }, theme(), { state: statusState });
     assert.equal(text(pendingStatus), "fork_status review-1234567");
     renderer.renderForkStatusResult(
-      { content: [{ type: "text", text: "review-1234567: working" }], details: { state: "working" } },
+      { content: [{ type: "text", text: "review-1234567: working" }], details: { state: "working", description: "Review active authorization rules" } },
       { expanded: false },
       theme(),
       { state: statusState, args: { forkId: "review-1234567" }, isError: false, invalidate: () => { throw new Error("must not invalidate while rendering"); } },
     );
-    assert.equal(text(pendingStatus), "fork_status review-1234567: working");
-    assert.equal(text(renderer.renderForkStatusCall({ forkId: "review-1234567" }, theme(), { state: statusState })), "fork_status review-1234567: working");
+    assert.equal(text(pendingStatus), "fork_status review-1234567 · Review active authorization rules: working");
+    assert.equal(
+      text(renderer.renderForkStatusCall({ forkId: "review-1234567" }, theme(), { state: statusState, lastComponent: pendingStatus })),
+      "fork_status review-1234567 · Review active authorization rules: working",
+    );
+
+    const legacyStatusState: Record<string, unknown> = {};
+    const legacyStatus = renderer.renderForkStatusCall({ forkId: "legacy-1234567" }, theme(), { state: legacyStatusState });
+    renderer.renderForkStatusResult(
+      { content: [{ type: "text", text: "legacy-1234567: completed" }], details: { state: "completed" } },
+      { expanded: false },
+      theme(),
+      { state: legacyStatusState, args: { forkId: "legacy-1234567" }, isError: false, invalidate: () => { throw new Error("must not invalidate while rendering"); } },
+    );
+    assert.equal(text(legacyStatus), "fork_status legacy-1234567: completed");
     assert.equal(
       text(renderer.renderForkStatusResult({ content: [{ type: "text", text: "Not found." }] }, { expanded: false }, theme(), { state: statusState, isError: true, invalidate() {} })),
       "Not found.",

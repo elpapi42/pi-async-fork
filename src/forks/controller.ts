@@ -205,14 +205,15 @@ export class Controller {
     });
   }
 
-  async status(ctx: any, forkId: string): Promise<{ state: AgentState | "completed" }> {
+  async status(ctx: any, forkId: string): Promise<{ state: AgentState | "completed"; description?: string }> {
     this.resume();
     const record = project(ctx.sessionManager.getBranch()).get(forkId);
     if (!record) throw new Error(`Fork ${forkId} was not found on this session branch.`);
-    if (record.destroyed) return { state: "completed" };
+    const description = record.description ? { description: record.description } : {};
+    if (record.destroyed) return { state: "completed", ...description };
     const running = this.#running.get(forkId);
     if (!running || running.agentId !== record.agentId) throw new Error(this.#unavailable.get(forkId) ?? `Fork ${forkId} is unavailable in this session.`);
-    return { state: await this.#agents.status(running.agent) };
+    return { state: await this.#agents.status(running.agent), ...description };
   }
 
   private observe(ctx: any, running: Running, generation: number): void {
