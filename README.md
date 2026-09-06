@@ -44,7 +44,7 @@ Forks remain one-off workers. They report only at meaningful checkpoints, then a
 
 Each visible checkpoint and final report uses `## Output` and `## Learnings`. An intermediate report states current findings, strongest evidence, material uncertainty, and the next action. To continue one Pi run, it must include the next necessary tool call in the same assistant response. A text-only report with no next tool call is final.
 
-The extension holds each visible child message until later pi-fleet activity proves that the child continued, then sends it as progress. If terminal status remains for ten seconds, the remaining message is final. It sends these model-visible envelopes:
+The extension holds each visible child message until later pi-fleet activity proves that the child continued. It sends that report as progress only while the latest monitored pi-fleet status is `working`. If terminal status remains for ten seconds, only the latest remaining message is final. It sends these model-visible envelopes:
 
 ```text
 <forkId>:
@@ -64,7 +64,7 @@ This is the final report. The fork finished and can no longer receive steering.
 
 A terminal notice states that the fork can no longer receive steering. The TUI renders only clean headers: `● fork <forkId>: working` for progress, `✓ fork <forkId>: completed` for final reports, and `⚠ fork <forkId>: terminal` for notices. The model-only status sentence does not appear in expanded Markdown.
 
-Progress and final reports use pi-fleet cursors plus the public fork ID and immutable agent ID for duplicate suppression. Each report remains scoped to its owner branch. An inactive owner branch receives no progress or final delivery until it becomes active again. Progress does not add `fork.created` or `fork.destroyed` records.
+Progress and final reports use pi-fleet cursors plus the public fork ID and immutable agent ID for duplicate suppression. Each report remains scoped to its owner branch. An inactive owner branch receives no delivery. If the fork is still working when that branch becomes active, missing progress can replay. If the fork is terminal, only its latest report becomes final. Progress does not add `fork.created` or `fork.destroyed` records.
 
 `pi.sendMessage()` has no delivery acknowledgement. This provides at-least-once replay with cursor duplicate suppression after a persisted parent custom message, not exactly-once delivery. A parent process can still lose a queued progress message before Pi consumes and persists it.
 

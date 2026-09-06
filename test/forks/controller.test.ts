@@ -731,7 +731,7 @@ test("sends a terminal notice after delivered progress when the fork fails", asy
   }
 });
 
-test("fork status serializes a working update that releases pending progress", async () => {
+test("fork status reports raw state without reordering lifecycle observation", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
   const branch: any[] = invokingBranch();
   const { pi, ctx, sent } = harness(root, branch);
@@ -743,6 +743,10 @@ test("fork status serializes a working update that releases pending progress", a
     agents.activity();
     const result = await controller.status(ctx, forkId);
     assert.equal(result.state, "working");
+    assert.equal(sent.length, 0);
+
+    agents.statusUpdate("working");
+    await waitForLifecycle();
     assert.deepEqual(sent.map((message) => message.details.kind), ["progress"]);
   } finally {
     await rm(root, { recursive: true, force: true });
