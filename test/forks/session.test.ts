@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createChildSession, projectInvokingAssistant } from "../../src/forks/session.js";
+import { createChildSession, isForkChildSession, projectInvokingAssistant } from "../../src/forks/session.js";
 
 const zeroUsage = {
   input: 0,
@@ -74,12 +74,19 @@ test("adds a linked zero-usage assistant boundary after the cleaned invoking ass
   try {
     const child = await createChildSession(manager(root, [user, entry]), "call-1", "research-1234567");
     const childEntries = await entries(child.path);
-    const projected = childEntries.at(-2);
+    const projected = childEntries.at(-3);
+    const marker = childEntries.at(-2);
     const boundary = childEntries.at(-1);
     assert.equal(projected.id, "assistant");
+    assert.equal(marker.type, "custom");
+    assert.equal(marker.customType, "pi-async-fork-child");
+    assert.equal(marker.parentId, projected.id);
+    assert.equal(marker.data.version, 1);
+    assert.equal(marker.data.sessionId, childEntries[0].id);
+    assert.equal(marker.data.forkId, "research-1234567");
     assert.equal(boundary.type, "message");
     assert.notEqual(boundary.id, projected.id);
-    assert.equal(boundary.parentId, projected.id);
+    assert.equal(boundary.parentId, marker.id);
     assert.equal(boundary.message.role, "assistant");
     assert.equal(boundary.message.stopReason, "stop");
     assert.equal(boundary.message.responseId, undefined);
@@ -99,11 +106,32 @@ test("links the assistant boundary to the parent user when no cleaned content re
   try {
     const child = await createChildSession(manager(root, [user, toolOnly]), "call-1", "research-1234567");
     const childEntries = await entries(child.path);
-    assert.equal(childEntries.at(-1).parentId, "user");
-    assert.equal(childEntries.at(-2).id, "user");
+    const marker = childEntries.at(-2);
+    const boundary = childEntries.at(-1);
+    assert.equal(marker.parentId, "user");
+    assert.equal(boundary.parentId, marker.id);
+    assert.equal(childEntries.at(-3).id, "user");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("detects only a child marker for the current session ID", () => {
+  const current = {
+    getHeader: () => ({ id: "child-session" }),
+    getEntries: () => [{
+      type: "custom",
+      customType: "pi-async-fork-child",
+      data: { version: 1, sessionId: "child-session", forkId: "research-1234567" },
+    }],
+  };
+  const inherited = {
+    getHeader: () => ({ id: "copied-session" }),
+    getEntries: current.getEntries,
+  };
+  assert.equal(isForkChildSession(current), true);
+  assert.equal(isForkChildSession(inherited), false);
+  assert.equal(isForkChildSession({ getHeader: () => null, getEntries: () => [] }), false);
 });
 
 test("uses a fresh exclusive session filename instead of the public fork ID", async () => {

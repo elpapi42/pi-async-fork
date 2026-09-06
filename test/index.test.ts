@@ -30,6 +30,42 @@ test("registers the three public tools with naming guidance", () => {
   assert.ok(messageRenderers.has("pi-async-fork-result"));
 });
 
+test("rejects every async-fork tool in a marked child session", async () => {
+  const tools: any[] = [];
+  const events = new Map<string, Function>();
+  register({
+    on(name: string, handler: Function) { events.set(name, handler); },
+    registerTool(tool: unknown) { tools.push(tool); },
+    registerMessageRenderer() {},
+  });
+  const marker = {
+    type: "custom",
+    customType: "pi-async-fork-child",
+    data: { version: 1, sessionId: "child-session", forkId: "research-1234567" },
+  };
+  const ctx = {
+    cwd: "/missing-configuration-is-not-read",
+    sessionManager: {
+      getHeader: () => ({ id: "child-session" }),
+      getEntries: () => [marker],
+    },
+  };
+  await events.get("session_start")?.({}, ctx);
+
+  const calls = [
+    ["create_fork", { name: "research", task: "Do the task." }],
+    ["steer_fork", { forkId: "research-1234567", message: "Continue." }],
+    ["fork_status", { forkId: "research-1234567" }],
+  ] as const;
+  for (const [name, params] of calls) {
+    const tool = tools.find((candidate) => candidate.name === name);
+    await assert.rejects(
+      () => tool.execute("call", params, new AbortController().signal, undefined, ctx),
+      /This session is an async fork\. Async fork tools are unavailable here\./,
+    );
+  }
+});
+
 test("keeps tools available with a clear error when startup configuration is absent", async () => {
   const isolatedAgentDir = await mkdtemp(join(tmpdir(), "pi-async-fork-index-"));
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;

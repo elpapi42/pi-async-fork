@@ -4,7 +4,7 @@ import { Agents, type Candidate, type ManagedAgents } from "./agent.js";
 import { Delivery } from "./delivery.js";
 import { createId, maxIdAttempts } from "./identity.js";
 import { active, appendCreated, appendDestroyed, project, type Created, type Destroyed } from "./ledger.js";
-import { createChildSession, removeChildSession } from "./session.js";
+import { assertForkToolsAvailable, createChildSession, removeChildSession } from "./session.js";
 import { buildAssignedTask } from "./task-prompt.js";
 
 type Running = Created & {
@@ -115,6 +115,7 @@ export class Controller {
 
   async create(ctx: any, toolCallId: string, name: string, task: string, tier: Tier = "balanced", signal?: AbortSignal): Promise<string> {
     this.resume();
+    assertForkToolsAvailable(ctx.sessionManager);
     const existingIds = new Set(project(ctx.sessionManager.getBranch()).keys());
     for (let attempt = 0; attempt < maxIdAttempts; attempt += 1) {
       throwIfAborted(signal);

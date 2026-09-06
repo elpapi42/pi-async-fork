@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import { loadConfiguration, TIERS, type Tier } from "./configuration.js";
 import { Controller } from "./forks/controller.js";
 import { RESULT_TYPE } from "./forks/ledger.js";
+import { assertForkToolsAvailable, FORK_CHILD_ERROR, isForkChildSession } from "./forks/session.js";
 import {
   renderCreateForkCall,
   renderCreateForkResult,
@@ -22,6 +23,7 @@ export default function register(pi: any): void {
   let unavailable: string | undefined;
 
   const getController = (ctx: any): Controller => {
+    assertForkToolsAvailable(ctx.sessionManager);
     if (unavailable) throw new Error(unavailable);
     if (!controller) {
       try {
@@ -37,6 +39,10 @@ export default function register(pi: any): void {
   pi.on("session_start", async (_event: unknown, ctx: any) => {
     controller = undefined;
     unavailable = undefined;
+    if (isForkChildSession(ctx.sessionManager)) {
+      unavailable = FORK_CHILD_ERROR;
+      return;
+    }
     try {
       controller = new Controller(pi, loadConfiguration(ctx.cwd));
       await controller.start(ctx);

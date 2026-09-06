@@ -5,6 +5,34 @@ import { buildForkBoundary } from "./task-prompt.js";
 
 export type ChildSession = { path: string };
 
+export const FORK_CHILD_ERROR = "This session is an async fork. Async fork tools are unavailable here. Complete the assigned task directly. Do not create, inspect, or steer forks. Return the result using `## Output` and `## Learnings`.";
+
+const CHILD_MARKER_TYPE = "pi-async-fork-child";
+
+export function isForkChildSession(sessionManager: any): boolean {
+  const sessionId = sessionManager?.getHeader?.()?.id;
+  if (typeof sessionId !== "string" || typeof sessionManager?.getEntries !== "function") return false;
+  return sessionManager.getEntries().some((entry: any) => entry?.type === "custom"
+    && entry.customType === CHILD_MARKER_TYPE
+    && entry.data?.version === 1
+    && entry.data?.sessionId === sessionId);
+}
+
+export function assertForkToolsAvailable(sessionManager: any): void {
+  if (isForkChildSession(sessionManager)) throw new Error(FORK_CHILD_ERROR);
+}
+
+function createForkChildMarker(parentId: string | null | undefined, sessionId: string, forkId: string): any {
+  return {
+    type: "custom",
+    id: randomUUID(),
+    parentId,
+    timestamp: new Date().toISOString(),
+    customType: CHILD_MARKER_TYPE,
+    data: { version: 1, sessionId, forkId },
+  };
+}
+
 function zeroUsage() {
   return {
     input: 0,
@@ -69,13 +97,15 @@ export async function createChildSession(sessionManager: any, toolCallId: string
   const parentPath = sessionManager.getSessionFile();
   if (typeof parentPath !== "string" || !parentPath) throw new Error("Cannot create a fork because the parent session has no file path.");
   const header = sessionManager.getHeader();
+  const sessionId = randomUUID();
   const projected = [...branch.slice(0, boundary)];
   const assistant = projectInvokingAssistant(branch[boundary]);
   if (assistant) projected.push(assistant);
-  projected.push(createForkBoundary(branch[boundary], assistant?.id ?? branch[boundary].parentId, forkId));
+  const marker = createForkChildMarker(assistant?.id ?? branch[boundary].parentId, sessionId, forkId);
+  projected.push(marker);
+  projected.push(createForkBoundary(branch[boundary], marker.id, forkId));
 
   const directory = join(dirname(parentPath), "async-forks");
-  const sessionId = randomUUID();
   const path = join(directory, `${sessionId}.jsonl`);
   await mkdir(directory, { recursive: true });
   const childHeader = { ...header, id: sessionId, parentSession: parentPath };

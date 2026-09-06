@@ -377,6 +377,28 @@ test("serializes accepted steering before automatic destruction", async () => {
   }
 });
 
+test("rejects direct creation from a marked child session", async () => {
+  const agents = new FakeAgents();
+  const controller = new Controller({ appendEntry() {}, sendMessage() {} }, configuration, agents);
+  const ctx = {
+    cwd: "/work",
+    sessionManager: {
+      getHeader: () => ({ id: "child-session" }),
+      getEntries: () => [{
+        type: "custom",
+        customType: "pi-async-fork-child",
+        data: { version: 1, sessionId: "child-session", forkId: "parent-1234567" },
+      }],
+      getBranch: () => [],
+    },
+  };
+  await assert.rejects(
+    () => controller.create(ctx, "call", "research", "Do the task."),
+    /This session is an async fork\. Async fork tools are unavailable here\./,
+  );
+  assert.equal(agents.observed, 0);
+});
+
 test("closes managed agents when startup reconciliation fails", async () => {
   const created = { type: "fork.created", forkId: "research-0000001", agentId: "agent-1", agentName: "research-0000001", stateDir: "/fleet", sessionPath: "/child", tier: "balanced" };
   const destroyed = { type: "fork.destroyed", forkId: created.forkId, agentId: created.agentId, kind: "response", output: "Answer", cursor: "c1" };
