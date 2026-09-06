@@ -14,6 +14,12 @@ Each new fork defaults to quiet final delivery. Its final report and terminal no
 
 New fork records store `description` and the internal `triggerTurn` value that maps from public `wakeOnCompletion`. The description appears only in TUI metadata. It does not change the model-visible report envelope. Creation and progress, final, and notice headers append ` · <description>` after the public fork ID. Steering and status headers do not change. Historical records or result messages without a description retain their current headers.
 
+## Reasoning effort
+
+Fast and balanced forks have less reasoning capability than the coordinating reader. Deep forks have more reasoning capability and use expensive compute. Capability changes the cognitive work assigned to a fork and the weight given to its evidence. It does not change scope, permissions, authority, or ownership. The coordinating reader interprets every report against the active goal and makes the decision.
+
+Use the lowest effort that can reliably complete the task. Use deep only when its added reasoning capability is necessary for the outcome. Do not use deep for routine evidence gathering, settled execution, duplicate agreement, or work that balanced can complete reliably. A strong deep report remains decision input, not a decision made on the reader's behalf.
+
 ## Configuration
 
 Add this to global or project Pi settings:

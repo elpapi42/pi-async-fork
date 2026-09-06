@@ -34,6 +34,7 @@ test("registers the three public tools with focused task and effort guidance", (
   assert.match(tools[0].parameters.properties.effort.description, /Effort changes reasoning depth, not task scope/);
   assert.match(tools[0].parameters.properties.effort.description, /If fast evidence needs judgment, use balanced; if it exposes complex uncertainty, use deep/);
   assert.match(tools[0].parameters.properties.effort.description, /If unsure, use balanced/);
+  assert.match(tools[0].parameters.properties.effort.description, /Deep is expensive and has more reasoning capability than you\. Use it only when that additional capability is necessary for the outcome\.$/);
   assert.equal(tools[0].parameters.properties.wakeOnCompletion.type, "boolean");
   assert.equal(tools[0].parameters.properties.wakeOnCompletion.description, "Choose whether the fork's final report or terminal notice wakes you when you are idle. Defaults to false. Set it to true when you need to continue work without another user message. Leave it false when you can use the result during your next interaction. You still receive the report when false. Intermediate progress never wakes you.");
   assert.equal(Object.hasOwn(tools[0].parameters.properties, "triggerTurn"), false);
