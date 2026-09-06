@@ -24,7 +24,7 @@ export class Delivery {
           display: true,
           details: { forkId, agentId, kind, cursor },
         },
-        { deliverAs: "steer", triggerTurn: true },
+        { deliverAs: "steer", triggerTurn: kind !== "progress" },
       );
     });
     this.#tail = work;

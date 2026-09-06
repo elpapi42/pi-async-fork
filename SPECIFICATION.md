@@ -167,16 +167,18 @@ Each parent report retains this visible fork-ID prefix:
 
 A progress report uses the explicit progress sentence and says that steering remains possible. A final report uses the explicit final sentence and says that steering is no longer possible. A terminal notice uses the explicit notice sentence. Its custom-message metadata separately includes the fork ID, immutable agent ID, report kind, and pi-fleet cursor when available. A parent custom message with the same identity marks that report as delivered.
 
-Parent delivery uses Pi's adaptive immediate delivery:
+Parent delivery uses different turn-trigger behavior for progress and terminal reports:
 
 ```ts
 pi.sendMessage(message, {
   deliverAs: "steer",
-  triggerTurn: true,
+  triggerTurn: kind !== "progress",
 })
 ```
 
-If the parent is working, Pi queues the result as steering before the next LLM call. If the parent is idle, Pi stores the custom message and starts a turn. The extension serializes these calls so simultaneous completed forks cannot start competing parent turns.
+Progress does not start a parent turn. If the parent is idle, Pi stores and displays the message without waking the agent. If the parent is working, Pi appends it after the current turn's tool results. A subsequent model call can use it, but progress alone does not cause that call.
+
+Final reports and terminal notices keep turn triggering enabled. If the parent is working, Pi queues them as steering before the next LLM call. If the parent is idle, Pi stores the custom message and starts a turn. The extension serializes all delivery calls.
 
 Progress remains delivery history only. It never adds `fork.created` or `fork.destroyed` entries. A completed `fork.destroyed` record retains only the final output or notice, its kind (`response` or `notice`), and the pi-fleet cursor when available. After restart, an active working fork can resend missing progress when the active branch has no matching parent custom message. A completed fork can resend its missing final report from `fork.destroyed`. This adds no lifecycle entry.
 

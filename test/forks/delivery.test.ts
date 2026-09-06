@@ -31,5 +31,8 @@ test("sends adaptive immediate custom messages in call order", async () => {
   ]);
   assert.deepEqual(calls[0][0].details, { forkId: "first-1234567", agentId: "a1", kind: "progress", cursor: "c1" });
   assert.deepEqual(calls[1][0].details, { forkId: "second-1234567", agentId: "a2", kind: "notice", cursor: "c2" });
-  assert.deepEqual(calls[0][1], { deliverAs: "steer", triggerTurn: true });
+  assert.deepEqual(calls[0][1], { deliverAs: "steer", triggerTurn: false });
+  assert.deepEqual(calls[1][1], { deliverAs: "steer", triggerTurn: true });
+  await delivery.deliver(pi, "third-1234567", "a3", "response", "three", "c3");
+  assert.deepEqual(calls[2][1], { deliverAs: "steer", triggerTurn: true });
 });

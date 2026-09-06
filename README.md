@@ -4,6 +4,8 @@
 
 It provides `create_fork`, `steer_fork`, and `fork_status`. Forks use a separate retained Pi session, send meaningful progress and final reports as parent steering messages, and preserve branch-scoped ownership in the parent Pi session.
 
+Progress reports do not wake an idle parent. During active work, Pi appends progress after the current turn's tool results for a subsequent model call. Progress alone does not cause another call. Final reports and terminal notices still wake an idle parent.
+
 ## Configuration
 
 Add this to global or project Pi settings:
