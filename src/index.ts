@@ -70,7 +70,7 @@ export default function register(pi: any): void {
   pi.registerTool({
     name: "create_fork",
     label: "Create async fork",
-    description: `Create an asynchronous fork for a focused task. It returns the complete fork ID after task acceptance. Progress reports, final reports, or terminal notices arrive as messages. Use it to offload context-heavy exploration, review, validation, or option analysis. ${NAME_DESCRIPTION}`,
+    description: `Create an asynchronous fork for a focused task. It returns the complete fork ID after task acceptance. Progress reports, final reports, or terminal notices arrive as messages. ${NAME_DESCRIPTION}`,
     parameters: Type.Object({
       name: Type.String({ description: NAME_DESCRIPTION }),
       task: Type.String({ description: TASK_DESCRIPTION }),

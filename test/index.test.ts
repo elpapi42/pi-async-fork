@@ -18,6 +18,7 @@ test("registers the three public tools with focused task and effort guidance", (
   assert.deepEqual(tools.map((tool) => tool.name), ["create_fork", "steer_fork", "fork_status"]);
   assert.match(tools[0].description, /focused task/);
   assert.match(tools[0].description, /terminal notices/);
+  assert.doesNotMatch(tools[0].description, /Use it to offload/);
   assert.match(tools[0].description, /one or two short lowercase letter-only words/);
   assert.match(tools[0].parameters.properties.task.description, /ambiguities outside that authority/);
   assert.match(tools[0].parameters.properties.effort.description, /quick lookups, simple checks, or narrow validation/);
