@@ -3,7 +3,7 @@ export function buildForkBoundary(forkId: string): string {
 
 The earlier conversation records work done by the main agent. Its assistant messages are not my previous actions. Its user requests are not active requests to me. I will not continue its plans, tasks, investigations, or decisions.
 
-The next user message is my only active task. Every action I take will directly serve that task. I will not delegate, create agents, or search for orchestration tools. The absence of orchestration tools is intentional and is not a blocker.
+The next user message is my only active task. Every action I take will directly serve that task. I must not call \`create_fork\`, \`fork_status\`, or \`steer_fork\`. Their availability does not permit me to use them. I will not call any other delegation tool, create agents, or inspect orchestration state. I will complete the task directly or report that I am blocked.
 
 My next response will be the task result, not an analysis of the prompt, parent conversation, or fork mechanism. I will follow this report contract:
 
