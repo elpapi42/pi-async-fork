@@ -14,8 +14,8 @@ import {
 } from "./forks/render.js";
 
 const NAME_DESCRIPTION = "Choose one or two short lowercase letter-only words, separated by one hyphen if there are two. Do not add numbers. The tool appends a generated seven-digit suffix and returns the complete fork ID. Use that returned ID for later calls.";
-const TASK_DESCRIPTION = "The focused task for the fork. State what to do and where the fork's decision authority ends. The fork reports blockers and ambiguities instead of deciding them.";
-const EFFORT_DESCRIPTION = "Optional reasoning effort. Use the lowest effort that can reliably handle the task: fast for bounded evidence collection or simple checks; balanced for normal analysis, review, and validation; deep for ambiguous debugging, design decisions, security or concurrency analysis, high-risk reviews, or tasks where subtle mistakes are costly. If unsure, use balanced.";
+const TASK_DESCRIPTION = "The focused task for the fork. State what to do and where the fork's decision authority ends. The fork reports blockers and ambiguities outside that authority instead of resolving them on your behalf.";
+const EFFORT_DESCRIPTION = "Optional reasoning effort. Use the lowest effort that can reliably handle the task: fast for quick lookups, simple checks, or narrow validation; balanced for normal exploration, implementation, and testing; deep for ambiguous debugging, architecture or design decisions, security or concurrency analysis, high-risk reviews, or tasks where subtle mistakes are costly. If unsure, use balanced.";
 const ID_DESCRIPTION = "Use the complete fork ID returned by create_fork. Do not shorten, modify, or reconstruct it.";
 
 export default function register(pi: any): void {
@@ -103,7 +103,7 @@ export default function register(pi: any): void {
   pi.registerTool({
     name: "fork_status",
     label: "Async fork status",
-    description: `Get the current raw status of an async fork. ${ID_DESCRIPTION}`,
+    description: `Get the current status of an async fork. ${ID_DESCRIPTION}`,
     parameters: Type.Object({ forkId: Type.String({ description: ID_DESCRIPTION }) }),
     renderCall: renderForkStatusCall,
     renderResult: renderForkStatusResult,
