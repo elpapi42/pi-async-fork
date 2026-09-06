@@ -6,13 +6,13 @@ It provides `create_fork`, `steer_fork`, and `fork_status`. Forks use a separate
 
 Progress reports never wake an idle parent. During active work, Pi appends progress after the current turn's tool results for a later model call. Progress alone does not cause that call.
 
-Each new fork defaults to quiet final delivery. Its final report and terminal notice do not wake you when you are idle. Set `triggerTurn: true` when completion must resume authorized work without another user message. With that setting, final reports and terminal notices wake you when you are idle and queue as steering while you are working. Existing ledger records without this setting retain the previous wake-enabled behavior.
+Each new fork defaults to quiet final delivery. Its final report and terminal notice do not wake you when you are idle. Set `wakeOnCompletion: true` when you need to continue work without another user message. With that setting, final reports and terminal notices wake you when you are idle and queue as steering while you are working. You still receive the report when `wakeOnCompletion` is false. Existing ledger records without the internal `triggerTurn` setting retain the previous wake-enabled behavior.
 
 ## Fork creation
 
 `create_fork` requires `name`, `task`, and `description`. The description is a single-line, 3-to-6-word purpose summary for the user, such as `Trace login session validation`. Describe the work, not fork mechanics. The extension trims outer whitespace and rejects C0 or C1 controls and Unicode line separators `U+2028` and `U+2029`.
 
-New fork records store `description` and `triggerTurn`. The description appears only in TUI metadata. It does not change the model-visible report envelope. Creation and progress, final, and notice headers append ` · <description>` after the public fork ID. Steering and status headers do not change. Historical records or result messages without a description retain their current headers.
+New fork records store `description` and the internal `triggerTurn` value that maps from public `wakeOnCompletion`. The description appears only in TUI metadata. It does not change the model-visible report envelope. Creation and progress, final, and notice headers append ` · <description>` after the public fork ID. Steering and status headers do not change. Historical records or result messages without a description retain their current headers.
 
 ## Configuration
 

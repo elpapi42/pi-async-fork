@@ -41,14 +41,14 @@ pi-fleet is the durable runtime for fork agents. It owns agent processes, worker
 ### `create_fork`
 
 ```text
-create_fork(name, task, description, effort?, triggerTurn?) → fork ID
+create_fork(name, task, description, effort?, wakeOnCompletion?) → fork ID
 ```
 
 The agent supplies a short semantic name for the work. The name does not need to be unique. It must contain one or two lowercase words, with one hyphen between two words. Each word contains letters only. The agent must not add a number because the tool appends the generated seven-digit suffix.
 
 `description` is required. It gives the user a 3-to-6-word summary of the fork's purpose, such as `Trace login session validation`. It must describe the work, not fork mechanics. The extension trims outer whitespace, requires 3 to 6 whitespace-separated words, and rejects C0 or C1 controls plus Unicode line separators `U+2028` and `U+2029`. It validates this value before it creates a child session or pi-fleet agent.
 
-`triggerTurn` is optional and defaults to `false` for new forks. It controls whether the fork's final report or terminal notice starts a turn for you when you are idle. Set it to `true` only when completion must resume authorized work without another user message. Leave it `false` when the result can wait for the next interaction. Intermediate progress never starts a turn. The selected value persists in `fork.created`; legacy records without it retain the previous wake-enabled behavior.
+`wakeOnCompletion` is optional and defaults to `false` for new forks. It controls whether the fork's final report or terminal notice wakes you when you are idle. Set it to `true` when you need to continue work without another user message. Leave it `false` when you can use the result during your next interaction. You still receive the report when it is `false`. Intermediate progress never wakes you. The selected value maps to internal `triggerTurn` and persists in `fork.created`; legacy records without that internal value retain the previous wake-enabled behavior.
 
 The tool creates a retained child session, creates a durable pi-fleet agent, starts its receiver, and sends the assigned task followed by a concise report-format requirement. It appends `fork.created` only after `agent.send()` accepts that message, then returns the canonical fork ID without waiting for completion.
 
@@ -409,7 +409,7 @@ Before daily use, prove:
 24. `create_fork` requires a single-line 3-to-6-word description, trims valid outer whitespace, rejects C0/C1 controls and `U+2028` or `U+2029`, validates it before side effects, and persists it in new `fork.created` records. Historical records without a description remain valid.
 25. The collapsed `create_fork` TUI call is one content line with its effort, public fork ID, and description, while the pending state uses `<name>-…`. The expanded view adds only the full task. Progress, final, and notice headers append the description after the public ID. `steer_fork` and `fork_status` use their exact tool names as headers, the steering message appears only when expanded, and status appends its state after a result. Historical entries without descriptions retain current headers. Normal successful result output, activity, usage, cost, and expansion hints remain hidden, while tool errors remain visible.
 26. Result custom-message content includes the fork-ID prefix and an explicit progress, final, or notice sentence for model context. The description appears only in display metadata. The TUI renderer shows `working` for progress, `completed` for final output, and `terminal` with a warning for notices. It shows Markdown output only in Pi's global expanded mode and never shows internal agent IDs, cursors, or the model-only sentence.
-27. Progress never starts a turn. New forks default `triggerTurn` to `false` for final reports and terminal notices, while `true` resumes an idle parent or queues steering during active work. The stored value survives active restoration and destroyed-result replay. Historical create records without it use wake-enabled delivery.
+27. Progress never wakes you. New forks default `wakeOnCompletion` to `false` for final reports and terminal notices, while `true` wakes you when idle or queues steering during active work. The selected value maps to internal `triggerTurn`, survives active restoration and destroyed-result replay, and historical create records without it use wake-enabled delivery.
 28. The extension does not imply workspace isolation or safe concurrent writes.
 29. Environment configuration merges global and project values by the documented key rules, rejects reserved or invalid entries, reaches only new child Pi processes, and preserves empty strings. It is absent from the async-fork ledger, while pi-fleet persists and recovers it.
 
