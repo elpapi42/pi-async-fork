@@ -28,9 +28,13 @@ class FakeAgents implements ManagedAgents {
   sent: string[] = [];
   observed = 0;
   stopped = 0;
+  createdEnvironment: Record<string, string> | undefined;
   async start() {}
   async stop() { this.stopped += 1; }
-  async create(name: string) { return { ...this.agent, name } as Agent; }
+  async create(name: string, _cwd?: string, _agentDir?: string, _piArgs?: string[], env?: Record<string, string>) {
+    this.createdEnvironment = env;
+    return { ...this.agent, name } as Agent;
+  }
   async restore() { return this.agent; }
   async status() { return this.state; }
   async steer(_agent: Agent, message: string) { this.sent.push(message); }
@@ -89,6 +93,21 @@ test("registers only after task acceptance and finalizes a settled candidate", a
     assert.equal(sent.length, 1);
     assert.match(sent[0].content, new RegExp(`^${forkId}:\\n\\nThis is the final report`));
     assert.equal(sent[0].details.kind, "response");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("passes configured child-Pi environment to agent creation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  const env = Object.assign(Object.create(null), { PI_OBSERVATIONAL_MEMORY_PASSIVE: "1" });
+  const controller = new Controller(pi, { ...configuration, env }, agents);
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    assert.deepEqual(agents.createdEnvironment, env);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

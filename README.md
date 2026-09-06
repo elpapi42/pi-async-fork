@@ -13,6 +13,7 @@ Add this to global or project Pi settings:
   "pi-async-fork": {
     "agentDir": "/absolute/path/to/fork-agent-profile",
     "stateDir": "/absolute/path/to/pi-fleet-state",
+    "env": { "PI_OBSERVATIONAL_MEMORY_PASSIVE": "1" },
     "fast": { "provider": "openai-codex", "model": "gpt-5.6-luna", "thinking": "medium" },
     "balanced": { "provider": "openai-codex", "model": "gpt-5.6-terra", "thinking": "high" },
     "deep": { "provider": "openai-codex", "model": "gpt-5.6-sol", "thinking": "high" }
@@ -23,6 +24,10 @@ Add this to global or project Pi settings:
 `agentDir` is optional. Omit it, or set it to `null`, to use pi-fleet's default Pi profile. Set a non-empty path to use a dedicated fork profile. A project `agentDir: null` overrides a configured global path.
 
 `stateDir` is optional. Omit it, or set it to `null`, to use pi-fleet's default state directory, `~/.pi-fleet`. Set a non-empty path to isolate fork state. A project `stateDir: null` overrides a configured global path.
+
+`env` is an optional string-to-string overlay for fork Pi processes. It does not change the parent Pi process or the pi-fleet worker. A project `env` object merges by key with the global object. A project string overrides one global value, a project `null` value removes one inherited key, `env: null` clears all inherited values, and `env: {}` keeps inherited values. Omit `env`, or resolve no entries, to pass no overlay.
+
+`PATH` and `PI_CODING_AGENT_DIR` are reserved. Names must be non-empty and cannot contain `=` or a null byte. Values must be strings without null bytes; empty strings are valid. pi-fleet persists values in agent state and backups, then applies them to Pi startup and recovery. Do not use `env` for secrets. Existing forks retain their recorded environment until destruction; changes affect only new forks. pi-async-fork does not duplicate environment data in its session ledger.
 
 A dedicated fork profile controls child resources and extensions. When the default profile loads `pi-async-fork` inside a child, an extension-owned session marker prevents all three async-fork tools from starting or managing forks. The tools remain visible so an attempted call can return a task-focused error.
 

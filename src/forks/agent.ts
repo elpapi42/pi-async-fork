@@ -19,7 +19,7 @@ type Observer = {
 export interface ManagedAgents {
   start(): Promise<void>;
   stop(): Promise<void>;
-  create(name: string, cwd: string, agentDir: string | undefined, piArgs: string[]): Promise<Agent>;
+  create(name: string, cwd: string, agentDir: string | undefined, piArgs: string[], env?: Record<string, string>): Promise<Agent>;
   restore(name: string, agentId: string): Promise<Agent>;
   status(agent: Agent): Promise<AgentState>;
   steer(agent: Agent, message: string): Promise<void>;
@@ -50,8 +50,8 @@ export class Agents implements ManagedAgents {
     this.#client = undefined;
   }
 
-  async create(name: string, cwd: string, agentDir: string | undefined, piArgs: string[]): Promise<Agent> {
-    return (await this.client()).create({ name, cwd, ...(agentDir ? { agentDir } : {}), piArgs });
+  async create(name: string, cwd: string, agentDir: string | undefined, piArgs: string[], env?: Record<string, string>): Promise<Agent> {
+    return (await this.client()).create({ name, cwd, ...(agentDir ? { agentDir } : {}), ...(env ? { env } : {}), piArgs });
   }
 
   async restore(name: string, agentId: string): Promise<Agent> {

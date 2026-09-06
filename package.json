@@ -27,7 +27,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@elpapi42/pi-fleet-sdk": "^0.13.0"
+    "@elpapi42/pi-fleet-sdk": "^0.14.0"
   },
   "devDependencies": {
     "tsx": "^4.20.6",

@@ -253,6 +253,7 @@ Configuration lives under `pi-async-fork` in normal Pi settings.
   "pi-async-fork": {
     "agentDir": "/home/elpapi/.pi/profiles/async-fork",
     "stateDir": "~/.pi-fleet",
+    "env": { "PI_OBSERVATIONAL_MEMORY_PASSIVE": "1" },
     "fast": {
       "provider": "openai-codex",
       "model": "gpt-5.6-luna",
@@ -272,15 +273,18 @@ Configuration lives under `pi-async-fork` in normal Pi settings.
 }
 ```
 
-The configuration has four concepts only:
+The configuration has five concepts only:
 
 - `agentDir`: optional complete global Pi profile for every fork. Omit it, or set it to `null`, to let pi-fleet use Pi's default profile. A project `null` overrides a configured global path;
 - `stateDir`: optional pi-fleet state-directory selector. Omit it, or set it to `null`, to use pi-fleet's default `~/.pi-fleet` state directory. A project `null` overrides a configured global path;
+- `env`: optional string-to-string overlay for fork Pi processes. It is not applied to the parent Pi process or pi-fleet worker;
 - `fast`, `balanced`, and `deep`: model and thinking profiles.
 
-The selected profile maps to Pi model flags when the agent is created. A missing or invalid selected profile leaves the auto-discovered extension inactive and makes all three tools return the same configuration error. It must not fail Pi session startup. Reload or restart Pi after adding valid configuration.
+`PATH` and `PI_CODING_AGENT_DIR` are reserved. Environment names must be non-empty and cannot contain `=` or a null byte. Values must be strings without null bytes. Empty string values are valid. Do not use `env` for secrets: pi-fleet persists values in agent state and backups, and child processes can expose them in logs or activity.
 
-Global and project settings both apply. Project scalar settings replace global values. A project `null` for `agentDir` or `stateDir` explicitly selects the corresponding Pi or pi-fleet default. A project effort profile replaces the matching global profile as one complete profile.
+The selected profile maps to Pi model flags when the agent is created. The resolved `env` map passes only to that Pi child. Pi-fleet persists it through Pi and worker recovery. Existing forks retain their immutable recorded map until destruction, so configuration changes affect only new forks. pi-async-fork does not duplicate this map in its session ledger. A missing or invalid selected profile leaves the auto-discovered extension inactive and makes all three tools return the same configuration error. It must not fail Pi session startup. Reload or restart Pi after adding valid configuration.
+
+Global and project settings both apply. Project scalar settings replace global values. A project `null` for `agentDir` or `stateDir` explicitly selects the corresponding Pi or pi-fleet default. A project effort profile replaces the matching global profile as one complete profile. Project `env` objects merge by key with global values: a project string overrides one value, a project key set to `null` removes one inherited value, `env: null` clears all inherited values, and `env: {}` retains inherited values. Omitted or empty resolved maps pass no SDK overlay.
 
 ## Fork Pi profile
 
@@ -296,18 +300,19 @@ Project-local `<cwd>/.pi` resources remain separate from the selected global age
 
 ## pi-fleet dependency
 
-`pi-async-fork` requires `@elpapi42/pi-fleet-sdk` version `0.13.0` or later. This version provides the public per-agent `agentDir` creation option:
+`pi-async-fork` requires `@elpapi42/pi-fleet-sdk` version `0.14.0` or later. This version provides public per-agent `agentDir` and child-Pi `env` creation options:
 
 ```ts
 client.create({
   name,
   cwd,
   agentDir,
+  env,
   piArgs,
 })
 ```
 
-pi-fleet persists this value in its durable agent record and sets `PI_CODING_AGENT_DIR` whenever it starts or recovers that agent's Pi process. The field is intentionally narrow. It is not generic per-agent environment injection.
+pi-fleet persists both values in its agent record. It sets `PI_CODING_AGENT_DIR` from `agentDir` and applies `env` only when it starts or recovers that agent's Pi process. It does not apply `env` to the pi-fleet worker or SDK process.
 
 ## Proposed module structure
 
@@ -339,7 +344,7 @@ test/
 The `forks/` directory is one cohesive feature boundary. Its files use that directory context instead of repeating a `fork-` prefix.
 
 - `index.ts` registers Pi tools and lifecycle hooks. It creates and stops the session-scoped controller and contains no fork behavior.
-- `configuration.ts` loads and validates `agentDir`, `stateDir`, and the three effort profiles. Configuration types remain with this module.
+- `configuration.ts` loads and validates `agentDir`, `stateDir`, `env`, and the three effort profiles. Configuration types remain with this module.
 - `forks/controller.ts` coordinates accepted creation, steer, status, restoration, branch protection, ordered report classification, settlement, situation notices, and finalization. It owns current in-memory fork state and the session generation guard, but no low-level storage, SDK, or message-formatting logic.
 - `forks/identity.ts` owns name validation, seven-digit suffix generation, ID formatting, and collision attempts.
 - `forks/ledger.ts` owns `fork.created` and `fork.destroyed` entry shapes, active-branch projection, historical lookup, lifecycle writes, and replayable output records.
@@ -349,7 +354,7 @@ The `forks/` directory is one cohesive feature boundary. Its files use that dire
 - `forks/render.ts` owns the async-fork TUI rendering. It transfers returned fork IDs and states through Pi's row-local renderer state, updates its retained call components directly without reentrant invalidation, and never renders normal successful fork output or activity.
 - `forks/task-prompt.ts` owns the synthetic assistant boundary text, including identity, inherited-context framing, bounded-worker instructions, milestone-report protocol, and the full `Output` and `Learnings` report contract. It also owns the assigned-task user message, its evidence-, state-, novelty-, and brevity-gated progress-report requirement, and its concise final-response format requirement.
 
-Types remain with the module that owns their meaning. The first version has no generic `utils`, `helpers`, `models`, `constants`, shared-code directory, repository abstraction, generic pi-fleet wrapper, custom database, cost footer, subprocess runner, JSONL event parser, generic environment configuration, or copied `pi-fork` architecture.
+Types remain with the module that owns their meaning. The first version has no generic `utils`, `helpers`, `models`, `constants`, shared-code directory, repository abstraction, generic pi-fleet wrapper, custom database, cost footer, subprocess runner, JSONL event parser, or copied `pi-fork` architecture.
 
 ## Scope and non-goals
 
@@ -364,7 +369,6 @@ It does not include:
 - a custom database or job engine;
 - cost footer or cost aggregation;
 - direct imports from `pi-fork` internals;
-- generic pi-fleet environment injection;
 - exactly-once parent-result delivery guarantees.
 
 Synchronous `pi-fork` remains separate and active.
@@ -392,13 +396,14 @@ Before daily use, prove:
 17. Machine or worker recovery preserves the configured `agentDir` profile, or continues with the default profile when no `agentDir` is configured.
 18. Name reuse with a different immutable pi-fleet agent ID is detected and never adopted.
 19. Parent session replacement or branch change prevents stale receiver delivery.
-20. The synthetic assistant boundary starts with the exact assistant-role runtime declaration `I am a fork.`, identifies the worker as a fork rather than the main agent, assigns inherited assistant messages to the main agent, marks inherited requests inactive, requires the worker to stay within scope and report out-of-scope findings without acting on them, explicitly prohibits `create_fork`, `fork_status`, `steer_fork`, and other delegation tools even when available, prohibits capability-equivalent deferred completion or later-run tooling without relying on names, defines the two-section checkpoint contract and same-response next-tool-call rule, and contains the two-section report contract. The next user message contains the assigned task followed by an evidence-, state-, novelty-, and compactness-gated progress-report requirement and a concise requirement to use both exact final-report headings, including for one-line tasks.
+20. The synthetic assistant boundary starts with the exact assistant-role runtime declaration `I am a fork.`, identifies the worker as a fork rather than the main agent, assigns inherited assistant messages to the main agent, marks inherited requests inactive, requires the worker to stay within scope and report out-of-scope findings without acting on them, explicitly prohibits `create_fork`, `fork_status`, `steer_fork`, and other delegation tools even when available, prohibits capability-equivalent deferred completion or later-run tooling without relying on names, defines the two-section checkpoint contract and same-response next-tool-call rule, and contains the two-section report contract. The next user message contains the assigned task followed by an evidence-, state-, novelty-, and brevity-gated progress-report requirement and a concise requirement to use both exact final-report headings, including for one-line tasks.
 21. A marked child does not start an async-fork controller. All three public async-fork tools reject calls with the same task-focused error, and direct `Controller.create()` calls reject before child-session or agent creation.
 22. Fork names enforce the one-or-two-word rule in the tool and parameter descriptions, reject agent-supplied numbers, and produce IDs with exactly seven generated digits.
 23. Fork IDs avoid current-branch history collisions and retry pi-fleet name collisions.
 24. The collapsed `create_fork` TUI call is one content line with its effort and public fork ID, the pending state uses `<name>-…`, and the expanded view adds only the full task. `steer_fork` and `fork_status` use their exact tool names as headers, the steering message appears only when expanded, and status appends its state after a result. Normal successful result output, activity, usage, cost, and expansion hints remain hidden, while tool errors remain visible.
 25. Result custom-message content includes the fork-ID prefix and an explicit progress, final, or notice sentence for model context. The TUI renderer shows `working` for progress, `completed` for final output, and `terminal` with a warning for notices. It shows Markdown output only in Pi's global expanded mode and never shows internal agent IDs, cursors, or the model-only sentence.
 26. The extension does not imply workspace isolation or safe concurrent writes.
+27. Environment configuration merges global and project values by the documented key rules, rejects reserved or invalid entries, reaches only new child Pi processes, and preserves empty strings. It is absent from the async-fork ledger, while pi-fleet persists and recovers it.
 
 Use unit tests with a fake pi-fleet SDK and isolated real Pi plus pi-fleet integration tests. Unit tests alone cannot prove RPC startup, agent-directory selection, session loading, steering delivery, or recovery.
 

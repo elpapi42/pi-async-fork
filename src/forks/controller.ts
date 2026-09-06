@@ -133,7 +133,7 @@ export class Controller {
           "--provider", profile.provider,
           "--model", profile.model,
           "--thinking", profile.thinking,
-        ]);
+        ], this.#configuration.env);
         throwIfAborted(signal);
         const created: Created = {
           type: "fork.created",

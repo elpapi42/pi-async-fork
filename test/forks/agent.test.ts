@@ -51,6 +51,18 @@ test("passes a configured agentDir to pi-fleet creation", async () => {
   assert.equal(options[0].agentDir, "/profile");
 });
 
+test("forwards a configured child-Pi environment and omits an undefined one", async () => {
+  const options: any[] = [];
+  const agent = { id: "agent-1", name: "research-0000001" } as Agent;
+  const client = { create(value: unknown) { options.push(value); return Promise.resolve(agent); } };
+  const agents = new Agents("/state", async () => client as any);
+  const env = Object.assign(Object.create(null), { PI_OBSERVATIONAL_MEMORY_PASSIVE: "", FEATURE_MODE: "enabled" });
+  await agents.create("research-0000001", "/work", undefined, ["--session", "/child"], env);
+  await agents.create("research-0000002", "/work", undefined, ["--session", "/child"]);
+  assert.deepEqual(options[0].env, env);
+  assert.equal(Object.hasOwn(options[1], "env"), false);
+});
+
 test("reports ordered continuation activity after visible messages", async () => {
   let release!: () => void;
   const releaseNext = new Promise<void>((resolve) => { release = resolve; });
