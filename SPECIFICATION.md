@@ -46,7 +46,7 @@ create_fork(name, task, tier?) → fork ID
 
 The agent supplies a short semantic name for the work. The name does not need to be unique. It must contain one or two lowercase words, with one hyphen between two words. Each word contains letters only. The agent must not add a number because the tool appends the generated seven-digit suffix.
 
-The tool creates a retained child session, creates a durable pi-fleet agent, starts its receiver, and sends the assigned task. It appends `fork.created` only after `agent.send()` accepts that task, then returns the canonical fork ID without waiting for completion.
+The tool creates a retained child session, creates a durable pi-fleet agent, starts its receiver, and sends the assigned task followed by a concise final-response format requirement. It appends `fork.created` only after `agent.send()` accepts that message, then returns the canonical fork ID without waiting for completion.
 
 Successful send acceptance is the registration boundary. The public pi-fleet SDK cannot reliably expose a separately observed `working` transition for fast tasks because a task can settle before status observation.
 
@@ -288,7 +288,7 @@ Pi's default agent directory is `~/.pi/agent`. `PI_CODING_AGENT_DIR` selects ano
 
 When configured, the fork `agentDir` is the complete worker-profile boundary. It can contain its own `settings.json`, `SYSTEM.md`, `AGENTS.md`, extensions, skills, prompts, themes, model definitions, package resources, and credentials policy. When it is omitted or `null`, pi-fleet starts the worker with Pi's default agent directory instead. When `stateDir` is omitted or `null`, the extension omits the SDK option and pi-fleet uses `~/.pi-fleet`.
 
-The profile controls stable resources and extensions. It does not contain fork-specific identity, bounded-worker instructions, task text, or report instructions. The extension adds identity, context framing, and the report contract in a synthetic assistant boundary at the child-session tail. It sends only the assigned task as the next user message, so the stable system and inherited-history prefix remains cacheable.
+The profile controls stable resources and extensions. It does not contain fork-specific identity, bounded-worker instructions, task text, or report instructions. The extension adds identity, context framing, and the full report contract in a synthetic assistant boundary at the child-session tail. The next user message contains the unchanged assigned task followed by a concise requirement for the exact `Output` and `Learnings` headings. This dynamic message does not change the stable system and inherited-history prefix.
 
 `pi-async-fork` does not maintain an extension allowlist or pass individual extension flags to child Pi processes. The selected profile determines the fork's extension set. The profile must not load `pi-async-fork` unless recursive async forks become an explicit future feature.
 
@@ -347,7 +347,7 @@ The `forks/` directory is one cohesive feature boundary. Its files use that dire
 - `forks/agent.ts` is the only module that imports the public pi-fleet SDK. It owns client lifetime, agent creation and restoration, status monitoring, activity receivers, serialized steering, and destruction.
 - `forks/delivery.ts` is the only module that calls `pi.sendMessage()`. It owns serialized parent delivery, the model-visible envelope, display metadata including result kind, and replay detection.
 - `forks/render.ts` owns the async-fork TUI rendering. It transfers returned fork IDs and states through Pi's row-local renderer state, updates its retained call components directly without reentrant invalidation, and never renders normal successful fork output or activity.
-- `forks/task-prompt.ts` owns the synthetic assistant boundary text, including identity, inherited-context framing, bounded-worker instructions, and the required `Output` and `Learnings` report contract. The controller sends the assigned task unchanged as the next user message.
+- `forks/task-prompt.ts` owns the synthetic assistant boundary text, including identity, inherited-context framing, bounded-worker instructions, and the full `Output` and `Learnings` report contract. It also owns the assigned-task user message and its concise final-response format requirement.
 
 Types remain with the module that owns their meaning. The first version has no generic `utils`, `helpers`, `models`, `constants`, shared-code directory, repository abstraction, generic pi-fleet wrapper, custom database, cost footer, subprocess runner, JSONL event parser, generic environment configuration, or copied `pi-fork` architecture.
 
@@ -378,7 +378,7 @@ Before daily use, prove:
 3. A thinking-only cleaned invoking assistant is retained. An empty cleaned entry is omitted. Both paths add a linked synthetic assistant boundary before the task user message, while a missing current `toolCallId` returns a creation error.
 4. The boundary has a distinct ID, zero usage, no source response ID or reasoning signature, correct parent linkage, stable context framing and report text, and the fork ID at its end.
 5. Multiple `create_fork` calls from one assistant batch produce sibling sessions from the same cut point.
-6. `create_fork` creates the child session and fleet agent, starts reception, sends only the assigned task as user content, receives initial-task acceptance, appends `fork.created`, and returns before the child completes.
+6. `create_fork` creates the child session and fleet agent, starts reception, sends the assigned task followed by the concise final-response format requirement as user content, receives initial-task acceptance, appends `fork.created`, and returns before the child completes.
 7. Initial creation or task-send failures destroy any created agent, remove the unregistered child session, write no ledger entry, return a clear error, and report cleanup failure when it occurs. Uncertain sends are not retried.
 8. Each receiver retains the latest `message.finished` candidate, while `agent.status()` recovery behavior and `idle` settlement determine finalization.
 9. An idle fork with no candidate, or an interrupted or failed fork, waits ten seconds from its first terminal-state observation, produces a plain situation notice without extension-level recovery, and then follows the normal destruction and replay path.
@@ -391,7 +391,7 @@ Before daily use, prove:
 16. Machine or worker recovery preserves the configured `agentDir` profile, or continues with the default profile when no `agentDir` is configured.
 17. Name reuse with a different immutable pi-fleet agent ID is detected and never adopted.
 18. Parent session replacement or branch change prevents stale receiver delivery.
-19. The synthetic assistant boundary starts with the exact assistant-role runtime declaration `I am a fork.`, identifies the worker as a fork rather than the main agent, assigns inherited assistant messages to the main agent, marks inherited requests inactive, requires the worker to stay within scope and report out-of-scope findings without acting on them, explicitly prohibits `create_fork`, `fork_status`, `steer_fork`, and other delegation tools even when available, prohibits capability-equivalent deferred completion or later-run tooling without relying on names, and contains the two-section report contract. The next user message contains only the assigned task.
+19. The synthetic assistant boundary starts with the exact assistant-role runtime declaration `I am a fork.`, identifies the worker as a fork rather than the main agent, assigns inherited assistant messages to the main agent, marks inherited requests inactive, requires the worker to stay within scope and report out-of-scope findings without acting on them, explicitly prohibits `create_fork`, `fork_status`, `steer_fork`, and other delegation tools even when available, prohibits capability-equivalent deferred completion or later-run tooling without relying on names, and contains the two-section report contract. The next user message contains the assigned task followed by a concise requirement to use both exact report headings, including for one-line tasks.
 20. Fork names enforce the one-or-two-word rule in the tool and parameter descriptions, reject agent-supplied numbers, and produce IDs with exactly seven generated digits.
 21. Fork IDs avoid current-branch history collisions and retry pi-fleet name collisions.
 22. The collapsed `create_fork` TUI call is one content line with its tier and public fork ID, the pending state uses `<name>-…`, and the expanded view adds only the full task. `steer_fork` and `fork_status` use their exact tool names as headers, the steering message appears only when expanded, and status appends its state after a result. Normal successful result output, activity, usage, cost, and expansion hints remain hidden, while tool errors remain visible.

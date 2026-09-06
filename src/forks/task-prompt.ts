@@ -118,3 +118,17 @@ Always use exactly these two required headings: \`Output\` and \`Learnings\`.
 
 Fork ID: ${forkId}`;
 }
+
+export function buildAssignedTask(task: string): string {
+  return `${task}
+
+Final response requirement:
+
+Use exactly these two top-level headings:
+
+## Output
+
+## Learnings
+
+Use both headings even for a one-line task. If there are no reusable learnings, write \`No reusable learnings found.\` under \`## Learnings\`.`;
+}

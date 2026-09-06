@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildForkBoundary } from "../../src/forks/task-prompt.js";
+import { buildAssignedTask, buildForkBoundary } from "../../src/forks/task-prompt.js";
 
-test("frames fork ownership in an assistant boundary and sends only the task as user content", () => {
+test("frames fork ownership in an assistant boundary", () => {
   const boundary = buildForkBoundary("research-1234567");
   assert.match(boundary, /^I am a fork\. I am not the main agent\./);
   assert.match(boundary, /The earlier conversation records work done by the main agent\./);
@@ -19,4 +19,14 @@ test("frames fork ownership in an assistant boundary and sends only the task as 
   assert.match(boundary, /I will not schedule a reminder, wake-up, retry, or delayed follow-up\./);
   assert.match(boundary, /<report_contract>[\s\S]*## Output[\s\S]*## Learnings[\s\S]*<\/report_contract>/);
   assert.equal(boundary.endsWith("Fork ID: research-1234567"), true);
+});
+
+test("places a concise response-format requirement after the assigned task", () => {
+  const task = buildAssignedTask("Find the answer.");
+  assert.equal(task.startsWith("Find the answer.\n\nFinal response requirement:"), true);
+  assert.equal(task.indexOf("Find the answer.") < task.indexOf("Final response requirement:"), true);
+  assert.equal(task.includes("<assigned_task>"), false);
+  assert.match(task, /Use exactly these two top-level headings:\n\n## Output\n\n## Learnings/);
+  assert.match(task, /Use both headings even for a one-line task\./);
+  assert.match(task, /If there are no reusable learnings, write `No reusable learnings found\.` under `## Learnings`\./);
 });

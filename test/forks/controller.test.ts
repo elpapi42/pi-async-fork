@@ -7,6 +7,7 @@ import type { Agent, AgentState } from "@elpapi42/pi-fleet-sdk";
 import type { Configuration } from "../../src/configuration.js";
 import { Controller } from "../../src/forks/controller.js";
 import type { Candidate, ManagedAgents, ObserverCallbacks } from "../../src/forks/agent.js";
+import { buildAssignedTask } from "../../src/forks/task-prompt.js";
 
 const configuration: Configuration = {
   agentDir: "/profile",
@@ -69,7 +70,7 @@ test("registers only after task acceptance and finalizes a settled candidate", a
     const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
     assert.match(forkId, /^research-\d{7}$/);
     assert.equal(branch.filter((entry) => entry?.data?.type === "fork.created").length, 1);
-    assert.equal(agents.sent[0], "Find the answer.");
+    assert.equal(agents.sent[0], buildAssignedTask("Find the answer."));
 
     agents.candidate({ text: "Answer", cursor: "cursor-1" });
     agents.statusUpdate("idle");

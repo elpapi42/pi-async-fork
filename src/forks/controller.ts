@@ -5,6 +5,7 @@ import { Delivery } from "./delivery.js";
 import { createId, maxIdAttempts } from "./identity.js";
 import { active, appendCreated, appendDestroyed, project, type Created, type Destroyed } from "./ledger.js";
 import { createChildSession, removeChildSession } from "./session.js";
+import { buildAssignedTask } from "./task-prompt.js";
 
 type Running = Created & {
   agent: Agent;
@@ -143,7 +144,7 @@ export class Controller {
         const running: Running = { ...created, agent, registered: false };
         this.#running.set(forkId, running);
         this.observe(ctx, running, this.#generation);
-        await this.#agents.steer(agent, task);
+        await this.#agents.steer(agent, buildAssignedTask(task));
         appendCreated(this.#pi, created);
         running.registered = true;
         this.schedule(ctx, running, this.#generation);
