@@ -84,7 +84,7 @@ test("adds a linked zero-usage assistant boundary after the cleaned invoking ass
     assert.equal(boundary.message.stopReason, "stop");
     assert.equal(boundary.message.responseId, undefined);
     assert.deepEqual(boundary.message.usage, zeroUsage);
-    assert.match(boundary.message.content[0].text, /I am now operating as a bounded fork/);
+    assert.match(boundary.message.content[0].text, /^I am a fork\. I am not the main agent\./);
     assert.match(boundary.message.content[0].text, /Fork ID: research-1234567$/);
   } finally {
     await rm(root, { recursive: true, force: true });

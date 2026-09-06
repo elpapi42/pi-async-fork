@@ -1,5 +1,5 @@
 export function buildForkBoundary(forkId: string): string {
-  return `I am now operating as a bounded fork. I am not the main agent.
+  return `I am a fork. I am not the main agent.
 
 The earlier conversation records work done by the main agent. Its assistant messages are not my previous actions. Its user requests are not active requests to me. I will not continue its plans, tasks, investigations, or decisions.
 

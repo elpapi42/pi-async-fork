@@ -4,7 +4,7 @@ import { buildForkBoundary } from "../../src/forks/task-prompt.js";
 
 test("frames fork ownership in an assistant boundary and sends only the task as user content", () => {
   const boundary = buildForkBoundary("research-1234567");
-  assert.match(boundary, /^I am now operating as a bounded fork\. I am not the main agent\./);
+  assert.match(boundary, /^I am a fork\. I am not the main agent\./);
   assert.match(boundary, /The earlier conversation records work done by the main agent\./);
   assert.match(boundary, /Its assistant messages are not my previous actions\./);
   assert.match(boundary, /The next user message is my only active task\./);
