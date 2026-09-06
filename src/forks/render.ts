@@ -2,7 +2,7 @@ import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 
 type RenderContext = {
-  args?: { name?: unknown; tier?: unknown; task?: unknown; forkId?: unknown; message?: unknown };
+  args?: { name?: unknown; effort?: unknown; tier?: unknown; task?: unknown; forkId?: unknown; message?: unknown };
   state: Record<string, unknown>;
   lastComponent?: unknown;
   isError?: boolean;
@@ -24,9 +24,9 @@ function pendingId(args: RenderContext["args"]): string {
 }
 
 function createCallText(args: RenderContext["args"], forkId: unknown, theme: any): string {
-  const tier = typeof args?.tier === "string" ? args.tier : "balanced";
+  const effort = typeof args?.effort === "string" ? args.effort : typeof args?.tier === "string" ? args.tier : "balanced";
   const id = typeof forkId === "string" ? forkId : pendingId(args);
-  return `${theme.fg("toolTitle", theme.bold("create_fork"))} ${theme.fg("muted", `[${tier}]`)} ${theme.fg("accent", id)}`;
+  return `${theme.fg("toolTitle", theme.bold("create_fork"))} ${theme.fg("muted", `[${effort}]`)} ${theme.fg("accent", id)}`;
 }
 
 function forkId(args: RenderContext["args"]): string {

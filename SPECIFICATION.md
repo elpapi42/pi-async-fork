@@ -41,7 +41,7 @@ pi-fleet is the durable runtime for fork agents. It owns agent processes, worker
 ### `create_fork`
 
 ```text
-create_fork(name, task, tier?) → fork ID
+create_fork(name, task, effort?) → fork ID
 ```
 
 The agent supplies a short semantic name for the work. The name does not need to be unique. It must contain one or two lowercase words, with one hyphen between two words. Each word contains letters only. The agent must not add a number because the tool appends the generated seven-digit suffix.
@@ -54,9 +54,9 @@ If child-session creation, fleet creation, or initial task delivery fails, the t
 
 The `create_fork` tool description and its `name` parameter description must state all naming rules. They must include the one-or-two-word limit, lowercase letters-only rule, optional single separator, prohibition against agent-supplied numbers, generated suffix behavior, and requirement to use the returned fork ID for later calls.
 
-`tier` accepts `fast`, `balanced`, or `deep`. The fixed default is `balanced`.
+`effort` accepts `fast`, `balanced`, or `deep`. The fixed default is `balanced`.
 
-In the Pi TUI, `create_fork` uses one content line: `create_fork [<tier>] <fork ID>`. Before creation returns the generated ID, it shows `<name>-…`. The expanded view adds the full task under `─── Task ───`. `steer_fork` uses `steer_fork <fork ID>` and adds the full steering message under `─── Message ───` only when expanded. `fork_status` uses `fork_status <fork ID>: <state>` after its result returns and has no expanded content. Brackets apply only to the `create_fork` tier. Normal successful result output, activity, usage, cost, and expansion hints remain hidden. Tool errors remain visible. The displayed ID is the public fork ID, not pi-fleet's internal agent UUID.
+In the Pi TUI, `create_fork` uses one content line: `create_fork [<effort>] <fork ID>`. Before creation returns the generated ID, it shows `<name>-…`. The expanded view adds the full task under `─── Task ───`. `steer_fork` uses `steer_fork <fork ID>` and adds the full steering message under `─── Message ───` only when expanded. `fork_status` uses `fork_status <fork ID>: <state>` after its result returns and has no expanded content. Brackets apply only to the `create_fork` effort. Normal successful result output, activity, usage, cost, and expansion hints remain hidden. Tool errors remain visible. The displayed ID is the public fork ID, not pi-fleet's internal agent UUID.
 
 Fork result custom messages retain the model-visible fork-ID prefix `<forkId>:\n\n` followed by a progress, final, or notice sentence and then the report. Progress says `This is an intermediate progress report. The fork is still working and can receive steering.` Final output says `This is the final report. The fork finished and can no longer receive steering.` A notice says `This is a terminal notice. The fork can no longer receive steering.`
 
@@ -280,7 +280,7 @@ The configuration has four concepts only:
 
 The selected profile maps to Pi model flags when the agent is created. A missing or invalid selected profile leaves the auto-discovered extension inactive and makes all three tools return the same configuration error. It must not fail Pi session startup. Reload or restart Pi after adding valid configuration.
 
-Global and project settings both apply. Project scalar settings replace global values. A project `null` for `agentDir` or `stateDir` explicitly selects the corresponding Pi or pi-fleet default. A project tier replaces the matching global tier as one complete profile.
+Global and project settings both apply. Project scalar settings replace global values. A project `null` for `agentDir` or `stateDir` explicitly selects the corresponding Pi or pi-fleet default. A project effort profile replaces the matching global profile as one complete profile.
 
 ## Fork Pi profile
 
@@ -339,7 +339,7 @@ test/
 The `forks/` directory is one cohesive feature boundary. Its files use that directory context instead of repeating a `fork-` prefix.
 
 - `index.ts` registers Pi tools and lifecycle hooks. It creates and stops the session-scoped controller and contains no fork behavior.
-- `configuration.ts` loads and validates `agentDir`, `stateDir`, and the three tier profiles. Configuration types remain with this module.
+- `configuration.ts` loads and validates `agentDir`, `stateDir`, and the three effort profiles. Configuration types remain with this module.
 - `forks/controller.ts` coordinates accepted creation, steer, status, restoration, branch protection, ordered report classification, settlement, situation notices, and finalization. It owns current in-memory fork state and the session generation guard, but no low-level storage, SDK, or message-formatting logic.
 - `forks/identity.ts` owns name validation, seven-digit suffix generation, ID formatting, and collision attempts.
 - `forks/ledger.ts` owns `fork.created` and `fork.destroyed` entry shapes, active-branch projection, historical lookup, lifecycle writes, and replayable output records.
@@ -396,7 +396,7 @@ Before daily use, prove:
 21. A marked child does not start an async-fork controller. All three public async-fork tools reject calls with the same task-focused error, and direct `Controller.create()` calls reject before child-session or agent creation.
 22. Fork names enforce the one-or-two-word rule in the tool and parameter descriptions, reject agent-supplied numbers, and produce IDs with exactly seven generated digits.
 23. Fork IDs avoid current-branch history collisions and retry pi-fleet name collisions.
-24. The collapsed `create_fork` TUI call is one content line with its tier and public fork ID, the pending state uses `<name>-…`, and the expanded view adds only the full task. `steer_fork` and `fork_status` use their exact tool names as headers, the steering message appears only when expanded, and status appends its state after a result. Normal successful result output, activity, usage, cost, and expansion hints remain hidden, while tool errors remain visible.
+24. The collapsed `create_fork` TUI call is one content line with its effort and public fork ID, the pending state uses `<name>-…`, and the expanded view adds only the full task. `steer_fork` and `fork_status` use their exact tool names as headers, the steering message appears only when expanded, and status appends its state after a result. Normal successful result output, activity, usage, cost, and expansion hints remain hidden, while tool errors remain visible.
 25. Result custom-message content includes the fork-ID prefix and an explicit progress, final, or notice sentence for model context. The TUI renderer shows `working` for progress, `completed` for final output, and `terminal` with a warning for notices. It shows Markdown output only in Pi's global expanded mode and never shows internal agent IDs, cursors, or the model-only sentence.
 26. The extension does not imply workspace isolation or safe concurrent writes.
 

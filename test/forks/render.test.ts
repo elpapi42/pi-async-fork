@@ -53,18 +53,19 @@ test("renders pending and completed fork IDs in the call line", async () => {
   const { renderer, cleanup } = await loadRenderer();
   try {
     const state: Record<string, unknown> = {};
-    const pending = renderer.renderCreateForkCall({ name: "review", tier: "fast" }, theme(), { state });
+    const pending = renderer.renderCreateForkCall({ name: "review", effort: "fast" }, theme(), { state });
     assert.equal(text(pending), "create_fork [fast] review-…");
 
     renderer.renderCreateForkResult(
       { content: [], details: { forkId: "review-1234567" } },
       { expanded: false },
       theme(),
-      { state, args: { name: "review", tier: "fast" }, isError: false, invalidate: () => { throw new Error("must not invalidate while rendering"); } },
+      { state, args: { name: "review", effort: "fast" }, isError: false, invalidate: () => { throw new Error("must not invalidate while rendering"); } },
     );
     assert.equal(text(pending), "create_fork [fast] review-1234567");
-    const completed = renderer.renderCreateForkCall({ name: "review", tier: "fast" }, theme(), { state, lastComponent: pending });
+    const completed = renderer.renderCreateForkCall({ name: "review", effort: "fast" }, theme(), { state, lastComponent: pending });
     assert.equal(text(completed), "create_fork [fast] review-1234567");
+    assert.equal(text(renderer.renderCreateForkCall({ name: "review", tier: "fast" }, theme(), { state: {} })), "create_fork [fast] review-…");
   } finally {
     await cleanup();
   }
@@ -201,14 +202,14 @@ test("renders one expanded task without reentrant invalidation and keeps creatio
   const { renderer, cleanup } = await loadRenderer();
   try {
     const state: Record<string, unknown> = {};
-    const call = renderer.renderCreateForkCall({ name: "review", tier: "fast" }, theme(), { state });
+    const call = renderer.renderCreateForkCall({ name: "review", effort: "fast" }, theme(), { state });
     const expanded = renderer.renderCreateForkResult(
       { content: [{ type: "text", text: "review-1234567" }], details: { forkId: "review-1234567" } },
       { expanded: true },
       theme(),
       {
         state,
-        args: { name: "review", tier: "fast", task: "Inspect the controller." },
+        args: { name: "review", effort: "fast", task: "Inspect the controller." },
         isError: false,
         invalidate: () => { throw new Error("must not invalidate while rendering"); },
       },

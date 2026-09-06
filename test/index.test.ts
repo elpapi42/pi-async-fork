@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import register from "../src/index.js";
 
-test("registers the three public tools with naming guidance", () => {
+test("registers the three public tools with focused task and effort guidance", () => {
   const tools: any[] = [];
   const events = new Map<string, Function>();
   const messageRenderers = new Map<string, Function>();
@@ -15,8 +15,15 @@ test("registers the three public tools with naming guidance", () => {
     registerMessageRenderer(type: string, renderer: Function) { messageRenderers.set(type, renderer); },
   });
   assert.deepEqual(tools.map((tool) => tool.name), ["create_fork", "steer_fork", "fork_status"]);
+  assert.match(tools[0].description, /focused task/);
+  assert.match(tools[0].description, /terminal notices/);
   assert.match(tools[0].description, /one or two short lowercase letter-only words/);
-  assert.match(tools[1].description, /complete fork ID returned by create_fork/);
+  assert.match(tools[0].parameters.properties.task.description, /where the fork's decision authority ends/);
+  assert.match(tools[0].parameters.properties.effort.description, /Optional reasoning effort/);
+  assert.equal(Object.hasOwn(tools[0].parameters.properties, "tier"), false);
+  assert.match(tools[1].description, /active async fork/);
+  assert.match(tools[1].parameters.properties.message.description, /current task/);
+  assert.match(tools[2].description, /current raw status/);
   assert.equal(typeof tools[0].renderCall, "function");
   assert.equal(typeof tools[0].renderResult, "function");
   assert.equal(typeof tools[1].renderCall, "function");
