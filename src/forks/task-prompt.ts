@@ -130,7 +130,7 @@ If this task needs more than one material research, reasoning, or implementation
 
 Use exactly these two top-level headings: \`## Output\` and \`## Learnings\`. State what the evidence changes, material uncertainty, the work that remains, and the next action. In an intermediate report, do not use \`Complete\`, \`Final\`, \`Finished\`, or wording that implies the assigned task is done. Include the next necessary tool call in the same assistant response so work continues.
 
-Keep an intermediate report compact: at most 180 words total, at most three findings, and at most two learning bullets. Source URLs may appear inline.
+Keep each intermediate report short and focused. This brevity requirement does not apply to the final report. Source URLs may appear inline.
 
 Send another intermediate report only when new evidence changes the recommendation, scope, risk, or next action, resolves a named uncertainty, or completes a distinct phase. New citations, restated findings, and repeated next actions do not qualify.
 

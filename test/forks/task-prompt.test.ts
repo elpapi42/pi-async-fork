@@ -46,7 +46,7 @@ test("places conditional progress guidance after the unchanged task and before t
   assert.match(task, /State what the evidence changes, material uncertainty, the work that remains, and the next action\./);
   assert.match(task, /In an intermediate report, do not use `Complete`, `Final`, `Finished`, or wording that implies the assigned task is done\./);
   assert.match(task, /Include the next necessary tool call in the same assistant response so work continues\./);
-  assert.match(task, /Keep an intermediate report compact: at most 180 words total, at most three findings, and at most two learning bullets\. Source URLs may appear inline\./);
+  assert.match(task, /Keep each intermediate report short and focused\. This brevity requirement does not apply to the final report\. Source URLs may appear inline\./);
   assert.match(task, /Send another intermediate report only when new evidence changes the recommendation, scope, risk, or next action, resolves a named uncertainty, or completes a distinct phase\./);
   assert.match(task, /New citations, restated findings, and repeated next actions do not qualify\./);
   assert.match(task, /Do not report raw activity, elapsed time, waiting, or simple one-phase work\./);
