@@ -78,7 +78,7 @@ test("registers only after task acceptance and finalizes a settled candidate", a
     const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     assert.match(forkId, /^research-\d{7}$/);
     const created = branch.find((entry) => entry?.data?.type === "fork.created");
-    assert.equal(created.data.triggerTurn, false);
+    assert.equal(Object.hasOwn(created.data, "triggerTurn"), false);
     assert.equal(created.data.description, "Find the requested answer");
     assert.equal(branch.filter((entry) => entry?.data?.type === "fork.created").length, 1);
     assert.equal(agents.sent[0], buildAssignedTask("Find the answer."));
@@ -123,14 +123,14 @@ test("rejects an invalid description before creating a child session or fleet ag
   }
 });
 
-test("persists an explicit final wake choice", async () => {
+test("omits terminal wake choice from new records", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
   const branch: any[] = invokingBranch();
   const { pi, ctx } = harness(root, branch);
   const controller = new Controller(pi, configuration, new FakeAgents());
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer", "balanced", undefined, true);
-    assert.equal(branch.find((entry) => entry?.data?.type === "fork.created")?.data.triggerTurn, true);
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
+    assert.equal(Object.hasOwn(branch.find((entry) => entry?.data?.type === "fork.created")?.data, "triggerTurn"), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -378,7 +378,7 @@ test("replays completed output only when parent metadata has no match", async ()
   }
 });
 
-test("replays completed output with its saved final wake choice", async () => {
+test("replays completed output from legacy wake records with a turn trigger", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
   const destroyed = { type: "fork.destroyed", forkId: "research-0000001", agentId: "agent-1", kind: "response", output: "Answer", cursor: "c1" };
   try {
@@ -387,14 +387,14 @@ test("replays completed output with its saved final wake choice", async () => {
       const branch: any[] = [{ type: "custom", customType: "pi-async-fork", data: created }, { type: "custom", customType: "pi-async-fork", data: destroyed }];
       const { pi, ctx, sendOptions } = harness(root, branch);
       await new Controller(pi, configuration, new FakeAgents()).start(ctx);
-      assert.deepEqual(sendOptions, [{ deliverAs: "steer", triggerTurn }]);
+      assert.deepEqual(sendOptions, [{ deliverAs: "steer", triggerTurn: true }]);
     }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("restores active forks with their saved final wake choice", async () => {
+test("restores active legacy forks with a turn trigger", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
   try {
     for (const triggerTurn of [false, true]) {
@@ -411,7 +411,7 @@ test("restores active forks with their saved final wake choice", async () => {
       now += 10_000;
       agents.statusUpdate("idle");
       await waitForLifecycle();
-      assert.deepEqual(sendOptions, [{ deliverAs: "steer", triggerTurn }]);
+      assert.deepEqual(sendOptions, [{ deliverAs: "steer", triggerTurn: true }]);
     }
   } finally {
     await rm(root, { recursive: true, force: true });

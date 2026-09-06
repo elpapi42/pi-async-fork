@@ -17,7 +17,6 @@ const NAME_DESCRIPTION = "Choose one or two short lowercase letter-only words, s
 const TASK_DESCRIPTION = "Describe the focused task you want the fork to complete. State what to do and where the fork's decision authority ends. The fork reports blockers and ambiguities outside that authority instead of resolving them on your behalf.";
 const DESCRIPTION_DESCRIPTION = "Summarize the fork's purpose in 3 to 6 words for the user. Describe the work, not the fork mechanics. Example: \"Trace login session validation\".";
 const EFFORT_DESCRIPTION = "Choose the fork's reasoning effort. Select it from the primary cognitive job and required reasoning depth. Use the lowest effort that can reliably complete the task. Effort changes reasoning depth, not task scope. Use fast for bounded read-only evidence gathering, including lookups, codebase exploration, documentation or web research, exact checks, inventories, and source or relationship tracing. Fast returns facts and does not make final judgments, recommendations, diagnoses, approval or gate decisions, or changes. Use balanced for bounded judgment or settled execution, including review, plan validation, test interpretation, bounded diagnosis, research synthesis, implementation planning, and scoped changes. Use deep for frontier uncertainty or the hardest reasoning, including novel architecture, unclear root causes, conflicting evidence, difficult security or data analysis, complex system behavior, major product decisions, broad blast radius, and hard-to-reverse choices. If fast evidence needs judgment, use balanced; if it exposes complex uncertainty, use deep. If unsure, use balanced. Deep is expensive and has more reasoning capability than you. Use it only when that additional capability is necessary for the outcome.";
-const WAKE_ON_COMPLETION_DESCRIPTION = "Choose whether the fork's final report or terminal notice wakes you when you are idle. Defaults to false. Set it to true when you need to continue work without another user message. Leave it false when you can use the result during your next interaction. You still receive the report when false. Intermediate progress never wakes you.";
 const ID_DESCRIPTION = "Use the complete fork ID returned by create_fork. Do not shorten, modify, or reconstruct it.";
 
 export default function register(pi: any): void {
@@ -78,12 +77,11 @@ export default function register(pi: any): void {
       task: Type.String({ description: TASK_DESCRIPTION }),
       description: Type.String({ description: DESCRIPTION_DESCRIPTION }),
       effort: Type.Optional(Type.Union(TIERS.map((effort) => Type.Literal(effort)), { description: EFFORT_DESCRIPTION })),
-      wakeOnCompletion: Type.Optional(Type.Boolean({ description: WAKE_ON_COMPLETION_DESCRIPTION })),
     }),
     renderCall: renderCreateForkCall,
     renderResult: renderCreateForkResult,
-    async execute(toolCallId: string, params: { name: string; task: string; description: string; effort?: Tier; wakeOnCompletion?: boolean }, signal: AbortSignal, _onUpdate: any, ctx: any) {
-      const forkId = await getController(ctx).create(ctx, toolCallId, params.name, params.task, params.description, params.effort ?? "balanced", signal, params.wakeOnCompletion ?? false);
+    async execute(toolCallId: string, params: { name: string; task: string; description: string; effort?: Tier }, signal: AbortSignal, _onUpdate: any, ctx: any) {
+      const forkId = await getController(ctx).create(ctx, toolCallId, params.name, params.task, params.description, params.effort ?? "balanced", signal);
       return { content: [{ type: "text", text: forkId }], details: { forkId } };
     },
   });

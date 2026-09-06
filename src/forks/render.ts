@@ -65,15 +65,22 @@ function resultBody(content: unknown, forkId: unknown, kind: unknown): string {
   if (typeof forkId !== "string") return content;
   const prefix = `${forkId}:\n\n`;
   if (!content.startsWith(prefix)) return content;
-  const status = kind === "progress"
-    ? "This is an intermediate progress report. The fork is still working and can receive steering.\n\n"
+  const statuses = kind === "progress"
+    ? ["This is an intermediate progress report. The fork is still working and can receive steering.\n\n"]
     : kind === "response"
-      ? "This is the final report. The fork finished and can no longer receive steering.\n\n"
+      ? [
+        "This is the final report. The fork finished and can no longer receive steering. Treat this report as an internal work event. Do not write user-visible text only because it arrived.\n\n",
+        "This is the final report. The fork finished and can no longer receive steering.\n\n",
+      ]
       : kind === "notice"
-        ? "This is a terminal notice. The fork can no longer receive steering.\n\n"
-        : "";
+        ? [
+          "This is a terminal notice. The fork finished and can no longer receive steering. Treat this notice as an internal work event. Do not write user-visible text only because it arrived.\n\n",
+          "This is a terminal notice. The fork can no longer receive steering.\n\n",
+        ]
+        : [];
   const body = content.slice(prefix.length);
-  return status && body.startsWith(status) ? body.slice(status.length) : body;
+  const status = statuses.find((value) => body.startsWith(value));
+  return status ? body.slice(status.length) : body;
 }
 
 export function renderForkResultMessage(message: any, { expanded }: { expanded: boolean; outputPad?: number }, theme: any) {

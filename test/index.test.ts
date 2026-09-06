@@ -35,8 +35,7 @@ test("registers the three public tools with focused task and effort guidance", (
   assert.match(tools[0].parameters.properties.effort.description, /If fast evidence needs judgment, use balanced; if it exposes complex uncertainty, use deep/);
   assert.match(tools[0].parameters.properties.effort.description, /If unsure, use balanced/);
   assert.match(tools[0].parameters.properties.effort.description, /Deep is expensive and has more reasoning capability than you\. Use it only when that additional capability is necessary for the outcome\.$/);
-  assert.equal(tools[0].parameters.properties.wakeOnCompletion.type, "boolean");
-  assert.equal(tools[0].parameters.properties.wakeOnCompletion.description, "Choose whether the fork's final report or terminal notice wakes you when you are idle. Defaults to false. Set it to true when you need to continue work without another user message. Leave it false when you can use the result during your next interaction. You still receive the report when false. Intermediate progress never wakes you.");
+  assert.equal(Object.hasOwn(tools[0].parameters.properties, "wakeOnCompletion"), false);
   assert.equal(Object.hasOwn(tools[0].parameters.properties, "triggerTurn"), false);
   assert.equal(Object.hasOwn(tools[0].parameters.properties, "tier"), false);
   assert.match(tools[1].description, /active async fork/);
@@ -55,13 +54,13 @@ test("registers the three public tools with focused task and effort guidance", (
   assert.ok(messageRenderers.has("pi-async-fork-result"));
 });
 
-test("forwards create_fork effort and wakeOnCompletion to the controller", async () => {
+test("forwards create_fork effort to the controller without a wake choice", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-async-fork-index-"));
   const agentDir = join(root, "agent");
   const cwd = join(root, "project");
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   const originalCreate = Controller.prototype.create;
-  const received: Array<{ description: unknown; effort: unknown; wakeOnCompletion: unknown }> = [];
+  const received: Array<{ description: unknown; effort: unknown }> = [];
   try {
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "settings.json"), JSON.stringify({
@@ -72,23 +71,23 @@ test("forwards create_fork effort and wakeOnCompletion to the controller", async
       },
     }));
     process.env.PI_CODING_AGENT_DIR = agentDir;
-    (Controller.prototype.create as any) = async function (_ctx: unknown, _toolCallId: unknown, _name: unknown, _task: unknown, description: unknown, effort: unknown, _signal: unknown, wakeOnCompletion: unknown) {
-      received.push({ description, effort, wakeOnCompletion });
+    (Controller.prototype.create as any) = async function (_ctx: unknown, _toolCallId: unknown, _name: unknown, _task: unknown, description: unknown, effort: unknown) {
+      received.push({ description, effort });
       return "research-1234567";
     };
     const tools: any[] = [];
     register({ on() {}, registerTool(tool: unknown) { tools.push(tool); }, registerMessageRenderer() {} });
     const create = tools.find((tool) => tool.name === "create_fork");
-    for (const [effort, wakeOnCompletion] of [["fast", undefined], ["balanced", false], ["deep", true]] as const) {
+    for (const effort of ["fast", "balanced", "deep"] as const) {
       const result = await create.execute(
-        "call", { name: "research", task: "Do the task.", description: "Complete the assigned task", effort, ...(wakeOnCompletion === undefined ? {} : { wakeOnCompletion }) }, new AbortController().signal, undefined, { cwd, sessionManager: {} },
+        "call", { name: "research", task: "Do the task.", description: "Complete the assigned task", effort }, new AbortController().signal, undefined, { cwd, sessionManager: {} },
       );
       assert.equal(result.content[0].text, "research-1234567");
     }
     assert.deepEqual(received, [
-      { description: "Complete the assigned task", effort: "fast", wakeOnCompletion: false },
-      { description: "Complete the assigned task", effort: "balanced", wakeOnCompletion: false },
-      { description: "Complete the assigned task", effort: "deep", wakeOnCompletion: true },
+      { description: "Complete the assigned task", effort: "fast" },
+      { description: "Complete the assigned task", effort: "balanced" },
+      { description: "Complete the assigned task", effort: "deep" },
     ]);
   } finally {
     Controller.prototype.create = originalCreate;

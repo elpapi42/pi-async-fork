@@ -89,7 +89,7 @@ test("renders fork result messages without duplicating the fork ID", async () =>
     assert.equal(text(progress), "● fork research-1234567 · Trace login session validation: working\nProgress with `code`.");
 
     const response = renderer.renderForkResultMessage(
-      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nResult with `code`.", details: { forkId: "research-1234567", kind: "response", description: "Trace login session validation" } },
+      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering. Treat this report as an internal work event. Do not write user-visible text only because it arrived.\n\nResult with `code`.", details: { forkId: "research-1234567", kind: "response", description: "Trace login session validation" } },
       { expanded: true, outputPad: 2 },
       renderTheme,
     );
@@ -102,7 +102,7 @@ test("renders fork result messages without duplicating the fork ID", async () =>
     assert.ok(colors.includes("customMessageText"));
 
     const collapsed = renderer.renderForkResultMessage(
-      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nHidden result.", details: { forkId: "research-1234567", kind: "response", description: "Trace login session validation" } },
+      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering. Treat this report as an internal work event. Do not write user-visible text only because it arrived.\n\nHidden result.", details: { forkId: "research-1234567", kind: "response", description: "Trace login session validation" } },
       { expanded: false, outputPad: 2 },
       theme(),
     );
@@ -110,11 +110,25 @@ test("renders fork result messages without duplicating the fork ID", async () =>
     assert.equal(collapsed.children.length, 1);
 
     const notice = renderer.renderForkResultMessage(
-      { content: "research-1234567:\n\nThis is a terminal notice. The fork can no longer receive steering.\n\nNo final response.", details: { forkId: "research-1234567", kind: "notice", description: "Trace login session validation" } },
+      { content: "research-1234567:\n\nThis is a terminal notice. The fork finished and can no longer receive steering. Treat this notice as an internal work event. Do not write user-visible text only because it arrived.\n\nNo final response.", details: { forkId: "research-1234567", kind: "notice", description: "Trace login session validation" } },
       { expanded: true },
       theme(),
     );
     assert.equal(text(notice), "⚠ fork research-1234567 · Trace login session validation: terminal\nNo final response.");
+
+    const legacyResponse = renderer.renderForkResultMessage(
+      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nHistorical response.", details: { forkId: "research-1234567", kind: "response" } },
+      { expanded: true },
+      theme(),
+    );
+    assert.equal(text(legacyResponse), "✓ fork research-1234567: completed\nHistorical response.");
+
+    const legacyNotice = renderer.renderForkResultMessage(
+      { content: "research-1234567:\n\nThis is a terminal notice. The fork can no longer receive steering.\n\nHistorical notice.", details: { forkId: "research-1234567", kind: "notice" } },
+      { expanded: true },
+      theme(),
+    );
+    assert.equal(text(legacyNotice), "⚠ fork research-1234567: terminal\nHistorical notice.");
 
     const legacy = renderer.renderForkResultMessage(
       { content: "research-1234567:\n\nLegacy result.", details: { forkId: "research-1234567" } },

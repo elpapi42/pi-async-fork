@@ -95,7 +95,7 @@ export class Controller {
       if (!this.isGeneration(generation)) return;
       if (record.destroyed) {
         if (!this.#delivery.wasDelivered(ctx.sessionManager.getBranch(), record.forkId, record.agentId, record.destroyed.cursor)) {
-          await this.#delivery.deliver(this.#pi, record.forkId, record.agentId, record.destroyed.kind, record.destroyed.output, record.destroyed.cursor, record.triggerTurn ?? true, record.description);
+          await this.#delivery.deliver(this.#pi, record.forkId, record.agentId, record.destroyed.kind, record.destroyed.output, record.destroyed.cursor, record.description);
         }
         continue;
       }
@@ -115,7 +115,7 @@ export class Controller {
     }
   }
 
-  async create(ctx: any, toolCallId: string, name: string, task: string, description: string, tier: Tier = "balanced", signal?: AbortSignal, triggerTurn = false): Promise<string> {
+  async create(ctx: any, toolCallId: string, name: string, task: string, description: string, tier: Tier = "balanced", signal?: AbortSignal): Promise<string> {
     this.resume();
     assertForkToolsAvailable(ctx.sessionManager);
     description = validateDescription(description);
@@ -144,7 +144,6 @@ export class Controller {
           ...(this.#configuration.stateDir ? { stateDir: this.#configuration.stateDir } : {}),
           sessionPath: child.path,
           tier,
-          triggerTurn,
           description,
         };
         const running: Running = { ...created, agent, registered: false, reports: [] };
@@ -253,7 +252,7 @@ export class Controller {
       while (running.reports[0]?.continued) {
         const report = running.reports[0];
         if (!this.#delivery.wasDelivered(ctx.sessionManager.getBranch(), running.forkId, running.agentId, report.cursor)) {
-          await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, "progress", report.text, report.cursor, true, running.description);
+          await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, "progress", report.text, report.cursor, running.description);
         }
         running.reports.shift();
       }
@@ -284,7 +283,7 @@ export class Controller {
       const destroyed: Destroyed = { type: "fork.destroyed", forkId: running.forkId, agentId: running.agentId, kind, output, cursor };
       appendDestroyed(this.#pi, destroyed);
       this.#running.delete(running.forkId);
-      await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, kind, output, cursor, running.triggerTurn ?? true, running.description);
+      await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, kind, output, cursor, running.description);
     } finally {
       running.finalizing = false;
     }

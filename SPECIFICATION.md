@@ -41,14 +41,14 @@ pi-fleet is the durable runtime for fork agents. It owns agent processes, worker
 ### `create_fork`
 
 ```text
-create_fork(name, task, description, effort?, wakeOnCompletion?) → fork ID
+create_fork(name, task, description, effort?) → fork ID
 ```
 
 The agent supplies a short semantic name for the work. The name does not need to be unique. It must contain one or two lowercase words, with one hyphen between two words. Each word contains letters only. The agent must not add a number because the tool appends the generated seven-digit suffix.
 
 `description` is required. It gives the user a 3-to-6-word summary of the fork's purpose, such as `Trace login session validation`. It must describe the work, not fork mechanics. The extension trims outer whitespace, requires 3 to 6 whitespace-separated words, and rejects C0 or C1 controls plus Unicode line separators `U+2028` and `U+2029`. It validates this value before it creates a child session or pi-fleet agent.
 
-`wakeOnCompletion` is optional and defaults to `false` for new forks. It controls whether the fork's final report or terminal notice wakes you when you are idle. Set it to `true` when you need to continue work without another user message. Leave it `false` when you can use the result during your next interaction. You still receive the report when it is `false`. Intermediate progress never wakes you. The selected value maps to internal `triggerTurn` and persists in `fork.created`; legacy records without that internal value retain the previous wake-enabled behavior.
+Progress reports never wake you. Final reports and terminal notices always wake you when idle and queue as steering while you are working. Treat these terminal reports as internal work events. Do not write user-visible text only because one arrived. This can create one main-model turn for each staggered terminal report. Historical `fork.created` records may contain `triggerTurn`; the parser accepts this legacy field and ignores its value.
 
 The tool creates a retained child session, creates a durable pi-fleet agent, starts its receiver, and sends the assigned task followed by a concise report-format requirement. It appends `fork.created` only after `agent.send()` accepts that message, then returns the canonical fork ID without waiting for completion.
 
@@ -62,7 +62,7 @@ The `create_fork` tool description and its `name` parameter description must sta
 
 In the Pi TUI, `create_fork` uses one content line: `create_fork [<effort>] <fork ID> · <description>`. Before creation returns the generated ID, it shows `<name>-…`. The expanded view adds the full task under `─── Task ───`. `steer_fork` uses `steer_fork <fork ID>` and adds the full steering message under `─── Message ───` only when expanded. `fork_status` uses `fork_status <fork ID>: <state>` after its result returns and has no expanded content. Brackets apply only to the `create_fork` effort. Normal successful result output, activity, usage, cost, and expansion hints remain hidden. Tool errors remain visible. The displayed ID is the public fork ID, not pi-fleet's internal agent UUID. Historical calls without a description retain their current headers.
 
-Fork result custom messages retain the model-visible fork-ID prefix `<forkId>:\n\n` followed by a progress, final, or notice sentence and then the report. Progress says `This is an intermediate progress report. The fork is still working and can receive steering.` Final output says `This is the final report. The fork finished and can no longer receive steering.` A notice says `This is a terminal notice. The fork can no longer receive steering.` The description is display metadata only and never changes this envelope.
+Fork result custom messages retain the model-visible fork-ID prefix `<forkId>:\n\n` followed by a progress, final, or notice sentence and then the report. Progress says `This is an intermediate progress report. The fork is still working and can receive steering.` Final output says `This is the final report. The fork finished and can no longer receive steering. Treat this report as an internal work event. Do not write user-visible text only because it arrived.` A notice says `This is a terminal notice. The fork finished and can no longer receive steering. Treat this notice as an internal work event. Do not write user-visible text only because it arrived.` The description is display metadata only and never changes this envelope.
 
 A dedicated TUI renderer shows `● fork <forkId> · <description>: working` for progress, `✓ fork <forkId> · <description>: completed` for a response, or `⚠ fork <forkId> · <description>: terminal` for a notice. In Pi's global collapsed mode, it shows only that header. In expanded mode, it adds a blank line and Markdown report output. It uses the active theme's `customMessageBg` panel and `customMessageText` body color so the result remains distinct from user and assistant messages. Delivery metadata carries `kind: "progress" | "response" | "notice"` and an optional description for this display only. The renderer removes the model-only classification sentence from Markdown. Legacy result messages without `kind` use a neutral marker, and historical messages without a description omit it. The renderer does not expose pi-fleet agent IDs or cursors.
 
@@ -176,13 +176,13 @@ Parent delivery uses different turn-trigger behavior for progress and terminal r
 ```ts
 pi.sendMessage(message, {
   deliverAs: "steer",
-  triggerTurn: kind === "progress" ? false : triggerTurn,
+  triggerTurn: kind !== "progress",
 })
 ```
 
 Progress never starts a parent turn. If the parent is idle, Pi stores and displays the message without waking the agent. If the parent is working, Pi appends it after the current turn's tool results. A later model call can use it, but progress alone does not cause that call.
 
-For new forks, final reports and terminal notices use the stored `triggerTurn` value, which defaults to `false`. When it is `false`, Pi stores and displays the report without waking an idle parent. During active work, Pi appends it at the turn boundary for a later model call. This does not guarantee that another model call occurs. When it is `true`, Pi queues the report as steering before the next LLM call while the parent is working, or starts a turn while the parent is idle. Legacy records without `triggerTurn` use `true`. The extension serializes all delivery calls.
+Final reports and terminal notices always queue as steering before the next LLM call while you are working, or start a turn while you are idle. Progress remains quiet. Historical `triggerTurn` fields remain parse-compatible but do not change this behavior. The extension serializes all delivery calls. Each staggered terminal report can create a main-model turn, which is accepted to prevent stalled dependent work.
 
 Progress remains delivery history only. It never adds `fork.created` or `fork.destroyed` entries. A completed `fork.destroyed` record retains only the final output or notice, its kind (`response` or `notice`), and the pi-fleet cursor when available. After restart, an active working fork can resend missing progress when the active branch has no matching parent custom message. A completed fork can resend its missing final report from `fork.destroyed`. This adds no lifecycle entry.
 
@@ -222,7 +222,7 @@ fork.created
 fork.destroyed
 ```
 
-`fork.created` is appended only after pi-fleet creates the agent and `agent.send()` accepts the initial task. It records the fork ID, pi-fleet name, immutable pi-fleet agent ID, selected state directory, child session path, selected effort, `triggerTurn`, and description. The description remains optional when parsing historical records.
+`fork.created` is appended only after pi-fleet creates the agent and `agent.send()` accepts the initial task. It records the fork ID, pi-fleet name, immutable pi-fleet agent ID, selected state directory, child session path, selected effort, and description. The description remains optional when parsing historical records. Historical records can include `triggerTurn`; the parser accepts and ignores it.
 
 `fork.destroyed` is appended only after pi-fleet destruction succeeds. It identifies the same fork and immutable agent ID, and stores the final output or situation notice, its kind, and the pi-fleet cursor when available for parent-delivery replay.
 
@@ -409,7 +409,7 @@ Before daily use, prove:
 24. `create_fork` requires a single-line 3-to-6-word description, trims valid outer whitespace, rejects C0/C1 controls and `U+2028` or `U+2029`, validates it before side effects, and persists it in new `fork.created` records. Historical records without a description remain valid.
 25. The collapsed `create_fork` TUI call is one content line with its effort, public fork ID, and description, while the pending state uses `<name>-…`. The expanded view adds only the full task. Progress, final, and notice headers append the description after the public ID. `steer_fork` and `fork_status` use their exact tool names as headers, the steering message appears only when expanded, and status appends its state after a result. Historical entries without descriptions retain current headers. Normal successful result output, activity, usage, cost, and expansion hints remain hidden, while tool errors remain visible.
 26. Result custom-message content includes the fork-ID prefix and an explicit progress, final, or notice sentence for model context. The description appears only in display metadata. The TUI renderer shows `working` for progress, `completed` for final output, and `terminal` with a warning for notices. It shows Markdown output only in Pi's global expanded mode and never shows internal agent IDs, cursors, or the model-only sentence.
-27. Progress never wakes you. New forks default `wakeOnCompletion` to `false` for final reports and terminal notices, while `true` wakes you when idle or queues steering during active work. The selected value maps to internal `triggerTurn`, survives active restoration and destroyed-result replay, and historical create records without it use wake-enabled delivery.
+27. Progress never wakes you. Final reports and terminal notices always wake you when idle or queue steering during active work, including restored and replayed legacy records with `triggerTurn: false`. New records omit `triggerTurn`; historical parsing accepts and ignores it. Terminal model context instructs you to process the report internally without user-visible acknowledgment unless communication is material.
 28. The extension does not imply workspace isolation or safe concurrent writes.
 29. Environment configuration merges global and project values by the documented key rules, rejects reserved or invalid entries, reaches only new child Pi processes, and preserves empty strings. It is absent from the async-fork ledger, while pi-fleet persists and recovers it.
 
