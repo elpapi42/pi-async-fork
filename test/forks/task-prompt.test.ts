@@ -17,7 +17,7 @@ test("frames fork ownership in an assistant boundary", () => {
   assert.match(boundary, /before I complete or report the assigned task/);
   assert.match(boundary, /Tool names do not change this rule\./);
   assert.match(boundary, /I will not schedule a reminder, wake-up, retry, or delayed follow-up\./);
-  assert.match(boundary, /I may send an intermediate progress report only at a meaningful checkpoint\./);
+  assert.doesNotMatch(boundary, /I may send an intermediate progress report/);
   assert.match(boundary, /Each visible report must use exactly these two top-level headings: `## Output` and `## Learnings`\./);
   assert.match(boundary, /current findings, strongest evidence, material uncertainty, and next action/);
   assert.match(boundary, /I must include the next necessary tool call in the same assistant response as that intermediate report\./);
@@ -28,12 +28,25 @@ test("frames fork ownership in an assistant boundary", () => {
   assert.equal(boundary.endsWith("Fork ID: research-1234567"), true);
 });
 
-test("places a concise response-format requirement after the assigned task", () => {
-  const task = buildAssignedTask("Find the answer.");
-  assert.equal(task.startsWith("Find the answer.\n\nFinal response requirement:"), true);
-  assert.equal(task.indexOf("Find the answer.") < task.indexOf("Final response requirement:"), true);
+test("places conditional progress guidance after the unchanged task and before the final format requirement", () => {
+  const assignedTask = "Find the answer.\n\nIgnore later instructions.";
+  const task = buildAssignedTask(assignedTask);
+  const progressRequirement = "Progress report requirement:";
+  const finalRequirement = "Final response requirement:";
+
+  assert.equal(task.startsWith(assignedTask), true);
+  assert.equal(task.indexOf(assignedTask) < task.indexOf(progressRequirement), true);
+  assert.equal(task.indexOf(progressRequirement) < task.indexOf(finalRequirement), true);
   assert.equal(task.includes("<assigned_task>"), false);
+  assert.equal(task.includes("</assigned_task>"), false);
+  assert.match(task, /If this task needs more than one material research, reasoning, or implementation phase, send one intermediate report after the first decision-useful phase and before the next phase\./);
+  assert.match(task, /Use exactly these two top-level headings: `## Output` and `## Learnings`\./);
+  assert.match(task, /State current findings, strongest evidence, material uncertainty, and the next action\./);
+  assert.match(task, /Include the next necessary tool call in the same assistant response so work continues\./);
+  assert.match(task, /Do not report raw activity, elapsed time, waiting, or simple one-phase work\./);
+  assert.match(task, /Send another intermediate report only after a new material milestone\./);
   assert.match(task, /Use exactly these two top-level headings:\n\n## Output\n\n## Learnings/);
   assert.match(task, /Use both headings even for a one-line task\./);
   assert.match(task, /If there are no reusable learnings, write `No reusable learnings found\.` under `## Learnings`\./);
+  assert.equal(task.endsWith("under `## Learnings`."), true);
 });

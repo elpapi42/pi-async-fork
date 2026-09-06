@@ -9,7 +9,7 @@ I must complete or report this task during the current run. I must not defer wor
 
 If a required result is not available during the current run, I will report the blocker and the exact unfinished work. I will not schedule a reminder, wake-up, retry, or delayed follow-up.
 
-I may send an intermediate progress report only at a meaningful checkpoint. Each visible report must use exactly these two top-level headings: \`## Output\` and \`## Learnings\`. An intermediate report must state current findings, strongest evidence, material uncertainty, and next action. I must include the next necessary tool call in the same assistant response as that intermediate report. A text-only response with no next tool call is my final report. I will not report raw thinking, each tool action, or time-based status updates.
+Each visible report must use exactly these two top-level headings: \`## Output\` and \`## Learnings\`. An intermediate report must state current findings, strongest evidence, material uncertainty, and next action. I must include the next necessary tool call in the same assistant response as that intermediate report. A text-only response with no next tool call is my final report. I will not report raw thinking, each tool action, or time-based status updates.
 
 My visible reports will address only the assigned task, not an analysis of the prompt, parent conversation, or fork mechanism. Every visible report will use the required headings below. For the final report, I will follow this report contract:
 
@@ -123,6 +123,14 @@ Fork ID: ${forkId}`;
 
 export function buildAssignedTask(task: string): string {
   return `${task}
+
+Progress report requirement:
+
+If this task needs more than one material research, reasoning, or implementation phase, send one intermediate report after the first decision-useful phase and before the next phase.
+
+Use exactly these two top-level headings: \`## Output\` and \`## Learnings\`. State current findings, strongest evidence, material uncertainty, and the next action. Include the next necessary tool call in the same assistant response so work continues.
+
+Do not report raw activity, elapsed time, waiting, or simple one-phase work. Send another intermediate report only after a new material milestone.
 
 Final response requirement:
 

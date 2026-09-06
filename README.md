@@ -40,7 +40,7 @@ A terminal fork waits ten seconds for delayed activity replay before it classifi
 
 ## Progress reports
 
-Forks remain one-off workers. They report only at meaningful checkpoints, then automatically destroy themselves after the final report or a terminal notice.
+Forks remain one-off workers. A task with more than one material research, reasoning, or implementation phase must report after its first decision-useful phase and before its next phase. It can report again only after a new material milestone. Forks do not report simple one-phase work, raw activity, elapsed time, or waiting. They automatically destroy themselves after the final report or a terminal notice.
 
 Each visible checkpoint and final report uses `## Output` and `## Learnings`. An intermediate report states current findings, strongest evidence, material uncertainty, and the next action. To continue one Pi run, it must include the next necessary tool call in the same assistant response. A text-only report with no next tool call is final.
 
