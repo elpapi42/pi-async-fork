@@ -126,11 +126,15 @@ export function buildAssignedTask(task: string): string {
 
 Progress report requirement:
 
-If this task needs more than one material research, reasoning, or implementation phase, send one intermediate report after the first decision-useful phase and before the next phase.
+If this task needs more than one material research, reasoning, or implementation phase, send one intermediate report only after completing a phase that produced decision-useful evidence. Include at least one concrete, task-relevant finding supported by evidence already obtained. Do not report plans, intended sources, or work not yet completed.
 
-Use exactly these two top-level headings: \`## Output\` and \`## Learnings\`. State current findings, strongest evidence, material uncertainty, and the next action. Include the next necessary tool call in the same assistant response so work continues.
+Use exactly these two top-level headings: \`## Output\` and \`## Learnings\`. State what the evidence changes, material uncertainty, the work that remains, and the next action. In an intermediate report, do not use \`Complete\`, \`Final\`, \`Finished\`, or wording that implies the assigned task is done. Include the next necessary tool call in the same assistant response so work continues.
 
-Do not report raw activity, elapsed time, waiting, or simple one-phase work. Send another intermediate report only after a new material milestone.
+Keep an intermediate report compact: at most 180 words total, at most three findings, and at most two learning bullets. Source URLs may appear inline.
+
+Send another intermediate report only when new evidence changes the recommendation, scope, risk, or next action, resolves a named uncertainty, or completes a distinct phase. New citations, restated findings, and repeated next actions do not qualify.
+
+Do not report raw activity, elapsed time, waiting, or simple one-phase work.
 
 Final response requirement:
 
