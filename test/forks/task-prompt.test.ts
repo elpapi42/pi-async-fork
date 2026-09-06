@@ -8,6 +8,8 @@ test("frames fork ownership in an assistant boundary and sends only the task as 
   assert.match(boundary, /The earlier conversation records work done by the main agent\./);
   assert.match(boundary, /Its assistant messages are not my previous actions\./);
   assert.match(boundary, /The next user message is my only active task\./);
+  assert.match(boundary, /Stay within the assigned scope\. Do not expand into adjacent or broader work\./);
+  assert.match(boundary, /Report blockers and out-of-scope findings instead of acting on them\./);
   assert.match(boundary, /I must not call `create_fork`, `fork_status`, or `steer_fork`\./);
   assert.match(boundary, /Their availability does not permit me to use them\./);
   assert.match(boundary, /I must complete or report this task during the current run\./);
