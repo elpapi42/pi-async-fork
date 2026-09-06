@@ -17,7 +17,14 @@ test("frames fork ownership in an assistant boundary", () => {
   assert.match(boundary, /before I complete or report the assigned task/);
   assert.match(boundary, /Tool names do not change this rule\./);
   assert.match(boundary, /I will not schedule a reminder, wake-up, retry, or delayed follow-up\./);
-  assert.match(boundary, /<report_contract>[\s\S]*## Output[\s\S]*## Learnings[\s\S]*<\/report_contract>/);
+  assert.match(boundary, /I may send an intermediate progress report only at a meaningful checkpoint\./);
+  assert.match(boundary, /Each visible report must use exactly these two top-level headings: `## Output` and `## Learnings`\./);
+  assert.match(boundary, /current findings, strongest evidence, material uncertainty, and next action/);
+  assert.match(boundary, /I must include the next necessary tool call in the same assistant response as that intermediate report\./);
+  assert.match(boundary, /A text-only response with no next tool call is my final report\./);
+  assert.match(boundary, /I will not report raw thinking, each tool action, or time-based status updates\./);
+  assert.match(boundary, /Every visible report will use the required headings below\. For the final report, I will follow this report contract:/);
+  assert.match(boundary, /<report_contract>[\s\S]*After completing the task[\s\S]*## Output[\s\S]*## Learnings[\s\S]*<\/report_contract>/);
   assert.equal(boundary.endsWith("Fork ID: research-1234567"), true);
 });
 

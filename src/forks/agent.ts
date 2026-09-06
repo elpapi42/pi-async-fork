@@ -4,6 +4,7 @@ export type Candidate = { text: string; cursor: string };
 
 export type ObserverCallbacks = {
   onCandidate(candidate: Candidate): void;
+  onActivity(): void;
   onStatus(state: AgentState): void;
   onError(error: unknown): void;
 };
@@ -124,7 +125,11 @@ export class Agents implements ManagedAgents {
       while (!observer.stopped) {
         const next = await iterator.next();
         if (next.done) return;
-        if (next.value.type === "message.finished") callbacks.onCandidate({ text: next.value.text, cursor: next.value.cursor });
+        if (next.value.type === "message.finished") {
+          callbacks.onCandidate({ text: next.value.text, cursor: next.value.cursor });
+        } else if (next.value.type !== "agent.destroyed") {
+          callbacks.onActivity();
+        }
       }
     } catch (error) {
       if (!observer.stopped) callbacks.onError(error);

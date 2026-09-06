@@ -4,7 +4,7 @@
 
 `pi-async-fork` makes forks durable, asynchronous context branches.
 
-A main Pi agent creates bounded work and immediately continues. A pi-fleet agent runs the work independently. When the fork produces its final assistant response, the extension sends that response back to the parent as a steering message.
+A main Pi agent creates bounded work and immediately continues. A pi-fleet agent runs the work independently. The extension sends meaningful intermediate reports and the final assistant response back to the parent as steering messages.
 
 The parent remains the orchestrator. Async forks are temporary work branches. They are not user-facing agents, long-lived specialists, or workflow owners.
 
@@ -19,7 +19,7 @@ fork → wait → result → continue
 `pi-async-fork` behavior is:
 
 ```text
-create fork → receive fork ID → continue → receive final response later
+create fork → receive fork ID → continue → receive progress and final reports later
 ```
 
 The first-order outcome is that bounded research or other safe background work does not block the parent agent's current reasoning.
@@ -46,7 +46,7 @@ create_fork(name, task, tier?) → fork ID
 
 The agent supplies a short semantic name for the work. The name does not need to be unique. It must contain one or two lowercase words, with one hyphen between two words. Each word contains letters only. The agent must not add a number because the tool appends the generated seven-digit suffix.
 
-The tool creates a retained child session, creates a durable pi-fleet agent, starts its receiver, and sends the assigned task followed by a concise final-response format requirement. It appends `fork.created` only after `agent.send()` accepts that message, then returns the canonical fork ID without waiting for completion.
+The tool creates a retained child session, creates a durable pi-fleet agent, starts its receiver, and sends the assigned task followed by a concise report-format requirement. It appends `fork.created` only after `agent.send()` accepts that message, then returns the canonical fork ID without waiting for completion.
 
 Successful send acceptance is the registration boundary. The public pi-fleet SDK cannot reliably expose a separately observed `working` transition for fast tasks because a task can settle before status observation.
 
@@ -58,7 +58,9 @@ The `create_fork` tool description and its `name` parameter description must sta
 
 In the Pi TUI, `create_fork` uses one content line: `create_fork [<tier>] <fork ID>`. Before creation returns the generated ID, it shows `<name>-…`. The expanded view adds the full task under `─── Task ───`. `steer_fork` uses `steer_fork <fork ID>` and adds the full steering message under `─── Message ───` only when expanded. `fork_status` uses `fork_status <fork ID>: <state>` after its result returns and has no expanded content. Brackets apply only to the `create_fork` tier. Normal successful result output, activity, usage, cost, and expansion hints remain hidden. Tool errors remain visible. The displayed ID is the public fork ID, not pi-fleet's internal agent UUID.
 
-Fork result custom messages retain the model-visible envelope `<forkId>:\n\n<output>`. A dedicated TUI renderer always shows `✓ fork <forkId>` for a response or `⚠ fork <forkId>` for a notice. In Pi's global collapsed mode, it shows only that header. In expanded mode, it adds a blank line and Markdown output. It uses the active theme's `customMessageBg` panel and `customMessageText` body color so the result remains distinct from user and assistant messages. Delivery metadata carries `kind: "response" | "notice"` for this display only. Legacy result messages without `kind` use a neutral marker. The renderer does not expose pi-fleet agent IDs or cursors.
+Fork result custom messages retain the model-visible fork-ID prefix `<forkId>:\n\n` followed by a progress, final, or notice sentence and then the report. Progress says `This is an intermediate progress report. The fork is still working and can receive steering.` Final output says `This is the final report. The fork finished and can no longer receive steering.` A notice says `This is a terminal notice. The fork can no longer receive steering.`
+
+A dedicated TUI renderer shows `● fork <forkId>: working` for progress, `✓ fork <forkId>: completed` for a response, or `⚠ fork <forkId>: terminal` for a notice. In Pi's global collapsed mode, it shows only that header. In expanded mode, it adds a blank line and Markdown report output. It uses the active theme's `customMessageBg` panel and `customMessageText` body color so the result remains distinct from user and assistant messages. Delivery metadata carries `kind: "progress" | "response" | "notice"` for this display only. The renderer removes the model-only classification sentence from Markdown. Legacy result messages without `kind` use a neutral marker. The renderer does not expose pi-fleet agent IDs or cursors.
 
 ### `steer_fork`
 
@@ -135,11 +137,13 @@ The readable fork ID is a session-branch-scoped handle. The separate immutable p
 
 ## Fork completion and delivery
 
-The extension receives pi-fleet activity in the background. For the first version, it forwards only the final visible assistant response to the parent.
+The extension receives pi-fleet activity in the background. Forks remain one-off workers: they may report meaningful checkpoints while working, then send one final report or terminal notice before automatic destruction.
 
-Each active-fork receiver retains the latest pi-fleet `message.finished` text and cursor as its candidate response. It monitors that fork through the public `agent.status()` API, which already attempts pi-fleet worker recovery before returning. The extension continues monitoring `starting` and `working`. Only `idle` confirms settlement. If an idle fork has a candidate response, that response is final.
+Every visible checkpoint and final worker report must use `## Output` and `## Learnings`. An intermediate report states current findings, strongest evidence, material uncertainty, and the next action. It must include the next necessary tool call in the same assistant response so the current Pi run continues. A text-only response with no next tool call is final. Workers do not report raw thinking, each tool action, or time-based status updates.
 
-If an idle fork has no candidate response, or status returns `interrupted` or `failed`, the extension waits ten seconds from the first terminal-state observation. This simple grace period lets delayed replay deliver a candidate after restart. If no confirmed final response is available after the grace period, the extension does not attempt its own recovery. It creates a plain situation notice that states the raw pi-fleet status and that no confirmed final response is available.
+Each active-fork receiver holds visible pi-fleet `message.finished` text and its cursor in arrival order. It reports raw later activity only to the controller, never to the parent. Later activity, including a newer visible message, proves that the previous held report is progress. The controller delivers that report only when the owning branch is active and no persisted parent custom message has the same public fork ID, immutable agent ID, and cursor. It does not remove a held report before branch-safe delivery succeeds.
+
+The controller keeps the final held report pending when pi-fleet status becomes `idle`. It waits ten seconds from the first terminal-state observation because status polling and activity delivery are separate paths. Delayed continuation activity during that interval classifies the report as progress and prevents destruction. After the grace period, a remaining held report is final. If no report remains, or status returns `interrupted` or `failed`, the extension creates a plain terminal notice. It does not attempt its own worker recovery.
 
 Before finalization or notice handling, the extension confirms that the current active-branch ledger owns the exact fork ID and immutable pi-fleet agent ID. If the owning branch is inactive, the extension does not deliver a result or notice, destroy the fleet agent, or append an entry. It leaves the fleet agent and its replayable activity intact. When that branch becomes active again, the extension reconnects, restores the latest candidate, checks status, and then handles the settled or no-result condition. A fork result or notice must never enter a sibling branch.
 
@@ -151,23 +155,17 @@ capture output or create notice → destroy pi-fleet agent → append fork.destr
 
 Parent delivery does not keep the finished fleet agent alive.
 
-The visible parent message envelope is exactly:
+Each parent report retains this visible fork-ID prefix:
 
 ```text
 <forkId>:
 
-<output>
+<classification sentence>
+
+<report>
 ```
 
-For example:
-
-```text
-research-1234567:
-
-<output>
-```
-
-`<output>` is either the final fork response or the plain situation notice. The extension must not add a prefix such as `Async fork completed`. Its custom-message metadata separately includes the fork ID, immutable agent ID, and pi-fleet cursor when available. A parent custom message with the same metadata marks that output as delivered.
+A progress report uses the explicit progress sentence and says that steering remains possible. A final report uses the explicit final sentence and says that steering is no longer possible. A terminal notice uses the explicit notice sentence. Its custom-message metadata separately includes the fork ID, immutable agent ID, report kind, and pi-fleet cursor when available. A parent custom message with the same identity marks that report as delivered.
 
 Parent delivery uses Pi's adaptive immediate delivery:
 
@@ -180,9 +178,9 @@ pi.sendMessage(message, {
 
 If the parent is working, Pi queues the result as steering before the next LLM call. If the parent is idle, Pi stores the custom message and starts a turn. The extension serializes these calls so simultaneous completed forks cannot start competing parent turns.
 
-A completed `fork.destroyed` record retains the delivered output, its kind (`response` or `notice`), and the pi-fleet cursor when available. After restart, the extension resends that output when the active branch has no matching parent custom message. This adds no lifecycle entry.
+Progress remains delivery history only. It never adds `fork.created` or `fork.destroyed` entries. A completed `fork.destroyed` record retains only the final output or notice, its kind (`response` or `notice`), and the pi-fleet cursor when available. After restart, the extension resends a missing progress or final report when the active branch has no matching parent custom message. This adds no lifecycle entry.
 
-Final-response delivery must serialize. Several finished forks can arrive while the parent is idle, and concurrent parent turn triggers can race.
+All report delivery must serialize. Several progress or final reports can arrive while the parent is idle, and concurrent parent turn triggers can race. `pi.sendMessage()` has no delivery acknowledgement. The extension provides at-least-once replay with cursor duplicate suppression after a parent custom message persists. It does not provide exactly-once delivery, and a parent process can lose a queued progress report before Pi consumes and persists it.
 
 ## Session and context model
 
@@ -237,8 +235,8 @@ On `session_start`, the extension:
 3. Restores each active fork by its pi-fleet name.
 4. Verifies the returned immutable agent ID against the ledger.
 5. Checks status so pi-fleet can recover a missing worker and determine settlement or a no-result condition.
-6. Restarts final-response receivers.
-7. Resends output from completed `fork.destroyed` records that has no matching parent custom message.
+6. Restarts report receivers for active forks.
+7. Resends missing progress or completed `fork.destroyed` reports only when parent custom-message metadata has no match.
 
 On `session_shutdown`, the extension stops receivers and closes its SDK client. It does not destroy active pi-fleet agents.
 
@@ -342,14 +340,14 @@ The `forks/` directory is one cohesive feature boundary. Its files use that dire
 
 - `index.ts` registers Pi tools and lifecycle hooks. It creates and stops the session-scoped controller and contains no fork behavior.
 - `configuration.ts` loads and validates `agentDir`, `stateDir`, and the three tier profiles. Configuration types remain with this module.
-- `forks/controller.ts` coordinates accepted creation, steer, status, restoration, branch protection, settlement, situation notices, and finalization. It owns current in-memory fork state and the session generation guard, but no low-level storage, SDK, or message-formatting logic.
+- `forks/controller.ts` coordinates accepted creation, steer, status, restoration, branch protection, ordered report classification, settlement, situation notices, and finalization. It owns current in-memory fork state and the session generation guard, but no low-level storage, SDK, or message-formatting logic.
 - `forks/identity.ts` owns name validation, seven-digit suffix generation, ID formatting, and collision attempts.
 - `forks/ledger.ts` owns `fork.created` and `fork.destroyed` entry shapes, active-branch projection, historical lookup, lifecycle writes, and replayable output records.
 - `forks/session.ts` owns the current tool-call cut, invoking-assistant projection, durable child-session marker and detection, linked synthetic assistant boundary entry, retained child JSONL creation, and unregistered-session cleanup after creation failure.
-- `forks/agent.ts` is the only module that imports the public pi-fleet SDK. It owns client lifetime, agent creation and restoration, status monitoring, activity receivers, serialized steering, and destruction.
-- `forks/delivery.ts` is the only module that calls `pi.sendMessage()`. It owns serialized parent delivery, the model-visible envelope, display metadata including result kind, and replay detection.
+- `forks/agent.ts` is the only module that imports the public pi-fleet SDK. It owns client lifetime, agent creation and restoration, status monitoring, ordered activity receivers, serialized steering, and destruction.
+- `forks/delivery.ts` is the only module that calls `pi.sendMessage()`. It owns serialized parent progress, final, and notice delivery, model-visible envelopes, display metadata, and replay detection.
 - `forks/render.ts` owns the async-fork TUI rendering. It transfers returned fork IDs and states through Pi's row-local renderer state, updates its retained call components directly without reentrant invalidation, and never renders normal successful fork output or activity.
-- `forks/task-prompt.ts` owns the synthetic assistant boundary text, including identity, inherited-context framing, bounded-worker instructions, and the full `Output` and `Learnings` report contract. It also owns the assigned-task user message and its concise final-response format requirement.
+- `forks/task-prompt.ts` owns the synthetic assistant boundary text, including identity, inherited-context framing, bounded-worker instructions, milestone-report protocol, and the full `Output` and `Learnings` report contract. It also owns the assigned-task user message and its concise report-format requirement.
 
 Types remain with the module that owns their meaning. The first version has no generic `utils`, `helpers`, `models`, `constants`, shared-code directory, repository abstraction, generic pi-fleet wrapper, custom database, cost footer, subprocess runner, JSONL event parser, generic environment configuration, or copied `pi-fork` architecture.
 
@@ -382,31 +380,33 @@ Before daily use, prove:
 5. Multiple `create_fork` calls from one assistant batch produce sibling sessions from the same cut point.
 6. `create_fork` creates the child session and fleet agent, starts reception, sends the assigned task followed by the concise final-response format requirement as user content, receives initial-task acceptance, appends `fork.created`, and returns before the child completes.
 7. Initial creation or task-send failures destroy any created agent, remove the unregistered child session, write no ledger entry, return a clear error, and report cleanup failure when it occurs. Uncertain sends are not retried.
-8. Each receiver retains the latest `message.finished` candidate, while `agent.status()` recovery behavior and `idle` settlement determine finalization.
-9. An idle fork with no candidate, or an interrupted or failed fork, waits ten seconds from its first terminal-state observation, produces a plain situation notice without extension-level recovery, and then follows the normal destruction and replay path.
+8. Each receiver preserves visible `message.finished` reports and ordered later activity. A later activity classifies the previous held report as progress, while a remaining report after terminal grace is final.
+9. An idle fork waits ten seconds from its first terminal-state observation before classifying its remaining held report as final. Delayed continuation activity during that interval prevents premature destruction. An idle fork with no held report, or an interrupted or failed fork, produces a plain situation notice without extension-level recovery and then follows the normal destruction and replay path.
 10. `fork_status` forwards raw pi-fleet states for active forks, treats idle forks as not steerable, and returns `completed` only for historical destroyed forks.
-11. A response or notice reaches the parent once in normal operation with exactly `<forkId>:\n\n<output>` as visible content.
-12. Two completed forks cannot race parent delivery while the parent is idle.
-13. Automatic destruction occurs only when the owning branch is active, follows the required finalization order, writes replayable output to `fork.destroyed`, and does not delete the child session file.
-14. A response or notice is not delivered, destroyed, or recorded while its owning branch is inactive, and later finalizes when that branch becomes active.
-15. Session restart rebuilds active fork inventory, reconnects receivers, and resends undelivered output from `fork.destroyed` only when custom-message metadata has no match.
-16. Machine or worker recovery preserves the configured `agentDir` profile, or continues with the default profile when no `agentDir` is configured.
-17. Name reuse with a different immutable pi-fleet agent ID is detected and never adopted.
-18. Parent session replacement or branch change prevents stale receiver delivery.
-19. The synthetic assistant boundary starts with the exact assistant-role runtime declaration `I am a fork.`, identifies the worker as a fork rather than the main agent, assigns inherited assistant messages to the main agent, marks inherited requests inactive, requires the worker to stay within scope and report out-of-scope findings without acting on them, explicitly prohibits `create_fork`, `fork_status`, `steer_fork`, and other delegation tools even when available, prohibits capability-equivalent deferred completion or later-run tooling without relying on names, and contains the two-section report contract. The next user message contains the assigned task followed by a concise requirement to use both exact report headings, including for one-line tasks.
-20. A marked child does not start an async-fork controller. All three public async-fork tools reject calls with the same task-focused error, and direct `Controller.create()` calls reject before child-session or agent creation.
-21. Fork names enforce the one-or-two-word rule in the tool and parameter descriptions, reject agent-supplied numbers, and produce IDs with exactly seven generated digits.
-22. Fork IDs avoid current-branch history collisions and retry pi-fleet name collisions.
-23. The collapsed `create_fork` TUI call is one content line with its tier and public fork ID, the pending state uses `<name>-…`, and the expanded view adds only the full task. `steer_fork` and `fork_status` use their exact tool names as headers, the steering message appears only when expanded, and status appends its state after a result. Normal successful result output, activity, usage, cost, and expansion hints remain hidden, while tool errors remain visible.
-24. Result custom-message content remains `<forkId>:\n\n<output>` for model context. Its TUI renderer always shows response or notice status and the public fork ID once. It shows the Markdown output only in Pi's global expanded mode and never shows internal agent IDs or cursors.
-25. The extension does not imply workspace isolation or safe concurrent writes.
+11. A progress, response, or notice reaches the parent in report order with the fork-ID prefix and its explicit model-visible classification sentence. Progress says steering remains possible; response and notice say it is not.
+12. Progress reports remain active-fork delivery history only. They do not add lifecycle records. Cursor metadata deduplicates already persisted progress and final reports across active-branch replay.
+13. Several progress or final reports cannot race parent delivery while the parent is idle.
+14. Automatic destruction occurs only when the owning branch is active, follows the required finalization order, writes replayable final output to `fork.destroyed`, and does not delete the child session file.
+15. A progress, response, or notice is not delivered, destroyed, or recorded while its owning branch is inactive. Progress and final handling resume only when that branch becomes active.
+16. Session restart rebuilds active fork inventory, reconnects receivers, and resends missing progress or completed output only when custom-message metadata has no match.
+17. Machine or worker recovery preserves the configured `agentDir` profile, or continues with the default profile when no `agentDir` is configured.
+18. Name reuse with a different immutable pi-fleet agent ID is detected and never adopted.
+19. Parent session replacement or branch change prevents stale receiver delivery.
+20. The synthetic assistant boundary starts with the exact assistant-role runtime declaration `I am a fork.`, identifies the worker as a fork rather than the main agent, assigns inherited assistant messages to the main agent, marks inherited requests inactive, requires the worker to stay within scope and report out-of-scope findings without acting on them, explicitly prohibits `create_fork`, `fork_status`, `steer_fork`, and other delegation tools even when available, prohibits capability-equivalent deferred completion or later-run tooling without relying on names, requires meaningful checkpoint reports with the two-section contract and a same-response next tool call, and contains the two-section report contract. The next user message contains the assigned task followed by a concise requirement to use both exact report headings, including for one-line tasks.
+21. A marked child does not start an async-fork controller. All three public async-fork tools reject calls with the same task-focused error, and direct `Controller.create()` calls reject before child-session or agent creation.
+22. Fork names enforce the one-or-two-word rule in the tool and parameter descriptions, reject agent-supplied numbers, and produce IDs with exactly seven generated digits.
+23. Fork IDs avoid current-branch history collisions and retry pi-fleet name collisions.
+24. The collapsed `create_fork` TUI call is one content line with its tier and public fork ID, the pending state uses `<name>-…`, and the expanded view adds only the full task. `steer_fork` and `fork_status` use their exact tool names as headers, the steering message appears only when expanded, and status appends its state after a result. Normal successful result output, activity, usage, cost, and expansion hints remain hidden, while tool errors remain visible.
+25. Result custom-message content includes the fork-ID prefix and an explicit progress, final, or notice sentence for model context. The TUI renderer shows `working` for progress, `completed` for final output, and a warning for notices. It shows Markdown output only in Pi's global expanded mode and never shows internal agent IDs, cursors, or the model-only sentence.
+26. The extension does not imply workspace isolation or safe concurrent writes.
 
 Use unit tests with a fake pi-fleet SDK and isolated real Pi plus pi-fleet integration tests. Unit tests alone cannot prove RPC startup, agent-directory selection, session loading, steering delivery, or recovery.
 
 ## Known limits and open details
 
-- `message.finished` is only a candidate response. Finalization depends on observing `idle` through pi-fleet status monitoring and requires real integration evidence.
-- The ten-second terminal-state grace period is a deliberate first-version heuristic, not proof that pi-fleet replay has caught up. A replay delayed beyond ten seconds can produce a no-result notice instead of the valid response.
+- `message.finished` has no task or tool-call correlation. The extension classifies a held report from later ordered activity or terminal grace. This requires real integration evidence.
+- The ten-second terminal-state grace period is a deliberate first-version heuristic, not proof that pi-fleet activity replay has caught up. Delayed continuation beyond ten seconds can classify an intermediate report as final, while delayed final activity can still produce a no-result notice.
+- `pi.sendMessage()` has no delivery acknowledgement. A queued progress report can be lost if the parent exits before Pi consumes and persists it. Cursor duplicate suppression applies only after the parent custom message exists.
 - `steer_fork` checks status before adaptive delivery, but pi-fleet does not make that check and send atomic. A fork can become idle within that small interval.
 - pi-fleet currently defines `failed` publicly but may not assign it in all failure paths. The extension forwards raw returned states and handles any returned `failed` as a no-result condition.
 - Pi and pi-fleet do not share an atomic transaction. The first version accepts rare stale or orphan records and reconciles them conservatively. A failed initial cleanup can still leave an unregistered external agent or child session.

@@ -1,18 +1,26 @@
-import { RESULT_TYPE, isDelivered, type Destroyed } from "./ledger.js";
+import { RESULT_TYPE, isDelivered } from "./ledger.js";
 
-export function formatOutput(forkId: string, output: string): string {
-  return `${forkId}:\n\n${output}`;
+export type ReportKind = "progress" | "response" | "notice";
+
+function statusSentence(kind: ReportKind): string {
+  if (kind === "progress") return "This is an intermediate progress report. The fork is still working and can receive steering.";
+  if (kind === "response") return "This is the final report. The fork finished and can no longer receive steering.";
+  return "This is a terminal notice. The fork can no longer receive steering.";
+}
+
+export function formatOutput(forkId: string, output: string, kind: ReportKind): string {
+  return `${forkId}:\n\n${statusSentence(kind)}\n\n${output}`;
 }
 
 export class Delivery {
   #tail = Promise.resolve();
 
-  deliver(pi: any, forkId: string, agentId: string, kind: Destroyed["kind"], output: string, cursor: string | undefined): Promise<void> {
+  deliver(pi: any, forkId: string, agentId: string, kind: ReportKind, output: string, cursor: string | undefined): Promise<void> {
     const work = this.#tail.catch(() => undefined).then(() => {
       pi.sendMessage(
         {
           customType: RESULT_TYPE,
-          content: formatOutput(forkId, output),
+          content: formatOutput(forkId, output, kind),
           display: true,
           details: { forkId, agentId, kind, cursor },
         },

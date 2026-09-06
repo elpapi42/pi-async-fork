@@ -49,28 +49,40 @@ function statusColor(state: string, theme: any): string {
   return theme.fg("muted", state);
 }
 
-function resultBody(content: unknown, forkId: unknown): string {
+function resultBody(content: unknown, forkId: unknown, kind: unknown): string {
   if (typeof content !== "string") return "";
   if (typeof forkId !== "string") return content;
   const prefix = `${forkId}:\n\n`;
-  return content.startsWith(prefix) ? content.slice(prefix.length) : content;
+  if (!content.startsWith(prefix)) return content;
+  const status = kind === "progress"
+    ? "This is an intermediate progress report. The fork is still working and can receive steering.\n\n"
+    : kind === "response"
+      ? "This is the final report. The fork finished and can no longer receive steering.\n\n"
+      : kind === "notice"
+        ? "This is a terminal notice. The fork can no longer receive steering.\n\n"
+        : "";
+  const body = content.slice(prefix.length);
+  return status && body.startsWith(status) ? body.slice(status.length) : body;
 }
 
 export function renderForkResultMessage(message: any, { expanded }: { expanded: boolean; outputPad?: number }, theme: any) {
   const forkId = typeof message?.details?.forkId === "string" ? message.details.forkId : "unknown";
   const kind = message?.details?.kind;
-  const icon = kind === "response"
-    ? theme.fg("success", "✓")
-    : kind === "notice"
-      ? theme.fg("warning", "⚠")
-      : theme.fg("muted", "•");
-  const header = `${icon} ${theme.fg("toolTitle", theme.bold("fork"))} ${theme.fg("accent", forkId)}`;
+  const icon = kind === "progress"
+    ? theme.fg("accent", "●")
+    : kind === "response"
+      ? theme.fg("success", "✓")
+      : kind === "notice"
+        ? theme.fg("warning", "⚠")
+        : theme.fg("muted", "•");
+  const state = kind === "progress" ? "working" : kind === "response" ? "completed" : kind === "notice" ? "terminal" : undefined;
+  const header = `${icon} ${theme.fg("toolTitle", theme.bold("fork"))} ${theme.fg("accent", forkId)}${state ? `: ${statusColor(state, theme)}` : ""}`;
   const box = new Box(1, 1, (text: string) => theme.bg("customMessageBg", text));
   box.addChild(new Text(header, 0, 0));
   if (expanded) {
     box.addChild(new Spacer(1));
     box.addChild(new Markdown(
-      resultBody(message?.content, message?.details?.forkId),
+      resultBody(message?.content, message?.details?.forkId, kind),
       0,
       0,
       getMarkdownTheme(),

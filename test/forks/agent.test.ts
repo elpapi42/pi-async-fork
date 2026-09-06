@@ -51,6 +51,41 @@ test("passes a configured agentDir to pi-fleet creation", async () => {
   assert.equal(options[0].agentDir, "/profile");
 });
 
+test("reports ordered continuation activity after visible messages", async () => {
+  let release!: () => void;
+  const releaseNext = new Promise<void>((resolve) => { release = resolve; });
+  const agent = {
+    id: "agent-events",
+    name: "research-0000001",
+    async status() { return { state: "working" }; },
+    receive() {
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { type: "message.finished", text: "checkpoint", cursor: "c1" };
+          yield { type: "tool.started", cursor: "tool-1" };
+          yield { type: "agent.destroyed", cursor: "destroyed" };
+          await releaseNext;
+        },
+      };
+    },
+  } as unknown as Agent;
+  const agents = new Agents("/unused");
+  const events: string[] = [];
+  agents.observe(agent, undefined, {
+    onCandidate(candidate) { events.push(`message:${candidate.cursor}`); },
+    onActivity() { events.push("activity"); },
+    onStatus() {},
+    onError(error) { throw error; },
+  });
+  try {
+    await wait(20);
+    assert.deepEqual(events, ["message:c1", "activity"]);
+  } finally {
+    release();
+    agents.stopObserving(agent.id);
+  }
+});
+
 test("polls one status request at a time and reports transport errors separately", async () => {
   let calls = 0;
   let release!: () => void;
@@ -76,6 +111,7 @@ test("polls one status request at a time and reports transport errors separately
   const states: string[] = [];
   agents.observe(agent, undefined, {
     onCandidate() {},
+    onActivity() {},
     onStatus(state) { states.push(state); },
     onError(error) { errors.push(error); },
   });
@@ -110,7 +146,7 @@ test("absorbs a receiver close failure", async () => {
   const onUnhandled = (error: unknown) => unhandled.push(error);
   process.on("unhandledRejection", onUnhandled);
   try {
-    agents.observe(agent, undefined, { onCandidate() {}, onStatus() {}, onError() {} });
+    agents.observe(agent, undefined, { onCandidate() {}, onActivity() {}, onStatus() {}, onError() {} });
     await wait(10);
     agents.stopObserving(agent.id);
     await wait(10);

@@ -38,6 +38,7 @@ class FakeAgents implements ManagedAgents {
   stopObserving() { this.stopped += 1; }
   async destroy() { this.destroyed += 1; await this.destroyHook?.(); }
   candidate(candidate: Candidate) { this.callbacks?.onCandidate(candidate); }
+  activity() { this.callbacks?.onActivity(); }
   statusUpdate(state: AgentState) { this.callbacks?.onStatus(state); }
 }
 
@@ -65,7 +66,8 @@ test("registers only after task acceptance and finalizes a settled candidate", a
     getHeader: () => ({ type: "session", version: 3, id: "parent", cwd: root }),
   } };
   const agents = new FakeAgents();
-  const controller = new Controller(pi, configuration, agents);
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
   try {
     const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
     assert.match(forkId, /^research-\d{7}$/);
@@ -75,13 +77,17 @@ test("registers only after task acceptance and finalizes a settled candidate", a
     agents.candidate({ text: "Answer", cursor: "cursor-1" });
     agents.statusUpdate("idle");
     await waitForLifecycle();
+    assert.equal(agents.destroyed, 0);
 
+    now += 10_000;
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
     assert.equal(agents.destroyed, 1);
     const destroyed = branch.find((entry) => entry?.data?.type === "fork.destroyed");
     assert.equal(destroyed.data.kind, "response");
     assert.equal(destroyed.data.output, "Answer");
     assert.equal(sent.length, 1);
-    assert.equal(sent[0].content, `${forkId}:\n\nAnswer`);
+    assert.match(sent[0].content, new RegExp(`^${forkId}:\\n\\nThis is the final report`));
     assert.equal(sent[0].details.kind, "response");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -130,15 +136,19 @@ test("drains active finalization before a session tree transition", async () => 
     getHeader: () => ({ type: "session", version: 3, id: "parent", cwd: root }),
   } };
   const agents = new FakeAgents();
+  let now = 0;
   let destroyStarted!: () => void;
   const started = new Promise<void>((resolve) => { destroyStarted = resolve; });
   let releaseDestroy!: () => void;
   const release = new Promise<void>((resolve) => { releaseDestroy = resolve; });
   agents.destroyHook = async () => { destroyStarted(); await release; };
-  const controller = new Controller(pi, configuration, agents);
+  const controller = new Controller(pi, configuration, agents, () => now);
   try {
     await controller.create(ctx, "call-1", "research", "Find the answer.");
     agents.candidate({ text: "Answer", cursor: "cursor-1" });
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    now += 10_000;
     agents.statusUpdate("idle");
     await started;
     let transitionFinished = false;
@@ -208,7 +218,8 @@ test("buffers a fast candidate until task acceptance registers the fork", async 
     agents.statusUpdate("idle");
     await accepted;
   };
-  const controller = new Controller(pi, configuration, agents);
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
   try {
     await controller.beforeTree();
     const creating = controller.create(ctx, "call-1", "research", "Find the answer.");
@@ -219,6 +230,10 @@ test("buffers a fast candidate until task acceptance registers the fork", async 
     await creating;
     await waitForLifecycle();
     assert.equal(branch.filter((item) => item?.data?.type === "fork.created").length, 1);
+    assert.equal(agents.destroyed, 0);
+    now += 10_000;
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
     assert.equal(branch.filter((item) => item?.data?.type === "fork.destroyed").length, 1);
     assert.equal(agents.destroyed, 1);
   } finally {
@@ -261,7 +276,8 @@ test("defers inactive-branch completion until the owning branch is active again"
   const { pi, ctx } = harness(root, branch);
   ctx.sessionManager.getBranch = () => branch;
   const agents = new FakeAgents();
-  const controller = new Controller(pi, configuration, agents);
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
   try {
     await controller.create(ctx, "call-1", "research", "Find the answer.");
     branch = [];
@@ -272,6 +288,10 @@ test("defers inactive-branch completion until the owning branch is active again"
     branch = owned;
     await controller.afterTree(ctx);
     agents.candidate({ text: "Answer", cursor: "c1" });
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    assert.equal(agents.destroyed, 0);
+    now += 10_000;
     agents.statusUpdate("idle");
     await waitForLifecycle();
     assert.equal(agents.destroyed, 1);
@@ -350,7 +370,8 @@ test("serializes accepted steering before automatic destruction", async () => {
   const branch: any[] = invokingBranch();
   const { pi, ctx } = harness(root, branch);
   const agents = new FakeAgents();
-  const controller = new Controller(pi, configuration, agents);
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
   try {
     const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
     let sendStarted!: () => void;
@@ -370,6 +391,10 @@ test("serializes accepted steering before automatic destruction", async () => {
     assert.equal(agents.destroyed, 0);
     releaseSend();
     await steering;
+    await waitForLifecycle();
+    assert.equal(agents.destroyed, 0);
+    now += 10_000;
+    agents.statusUpdate("idle");
     await waitForLifecycle();
     assert.equal(agents.destroyed, 1);
   } finally {
@@ -433,6 +458,292 @@ test("reports state-directory mismatch and ignores abort after accepted steering
     agents.steer = async (_agent, message) => { agents.sent.push(message); abort.abort(); };
     await controller.steer(ctx, forkId, "Continue.", abort.signal);
     assert.equal(agents.sent.at(-1), "Continue.");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("delivers a continued report as progress without destroying the fork", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx, sent } = harness(root, branch);
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents, () => 0);
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.activity();
+    agents.statusUpdate("working");
+    await waitForLifecycle();
+    assert.equal(agents.destroyed, 0);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].details.kind, "progress");
+    assert.match(sent[0].content, /intermediate progress report/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("preserves progress order and finalizes only the last pending report after terminal grace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx, sent } = harness(root, branch);
+  const agents = new FakeAgents();
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    agents.candidate({ text: "Checkpoint one", cursor: "progress-1" });
+    agents.activity();
+    agents.candidate({ text: "Checkpoint two", cursor: "progress-2" });
+    agents.activity();
+    agents.statusUpdate("working");
+    agents.candidate({ text: "Final answer", cursor: "final-1" });
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    assert.deepEqual(sent.map((message) => message.details.kind), ["progress", "progress"]);
+    assert.equal(agents.destroyed, 0);
+    now += 10_000;
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    assert.deepEqual(sent.map((message) => message.details.kind), ["progress", "progress", "response"]);
+    assert.equal(sent.filter((message) => message.details.cursor === "final-1").length, 1);
+    assert.equal(agents.destroyed, 1);
+    assert.equal(branch.filter((entry) => entry?.data?.type === "fork.destroyed").length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("late continuation and accepted steering preserve progress before finalization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx, sent } = harness(root, branch);
+  const agents = new FakeAgents();
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
+  try {
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    now += 9_999;
+    agents.activity();
+    await waitForLifecycle();
+    await controller.steer(ctx, forkId, "Check another source.");
+    assert.equal(agents.destroyed, 0);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].details.kind, "progress");
+    assert.equal(agents.sent.at(-1), "Check another source.");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("defers progress on an inactive branch and suppresses a replayed delivered cursor", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const owned: any[] = invokingBranch();
+  let branch: any[] = owned;
+  const { pi, ctx, sent } = harness(root, branch);
+  ctx.sessionManager.getBranch = () => branch;
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents, () => 0);
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    branch = [];
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.activity();
+    await waitForLifecycle();
+    assert.equal(sent.length, 0);
+
+    branch = owned;
+    await controller.afterTree(ctx);
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.activity();
+    agents.statusUpdate("working");
+    await waitForLifecycle();
+    assert.equal(sent.length, 1);
+    owned.push({ type: "custom_message", customType: "pi-async-fork-result", details: { forkId: sent[0].details.forkId, agentId: sent[0].details.agentId, cursor: "progress-1" } });
+
+    await controller.afterTree(ctx);
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.activity();
+    agents.statusUpdate("working");
+    await waitForLifecycle();
+    assert.equal(sent.length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("keeps delayed activity from turning an idle fork back into working", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx, sent } = harness(root, branch);
+  const agents = new FakeAgents();
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    agents.candidate({ text: "Final answer", cursor: "final-1" });
+    agents.statusUpdate("idle");
+    agents.activity();
+    await waitForLifecycle();
+    assert.equal(sent.length, 0);
+    now += 10_000;
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].details.kind, "response");
+    assert.equal(agents.destroyed, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("does not send stale progress after failed status arrives before delayed activity", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx, sent } = harness(root, branch);
+  const agents = new FakeAgents();
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.statusUpdate("failed");
+    agents.activity();
+    await waitForLifecycle();
+    assert.equal(sent.length, 0);
+    now += 10_000;
+    agents.statusUpdate("failed");
+    await waitForLifecycle();
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].details.kind, "notice");
+    assert.equal(agents.destroyed, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("waits for a current working status before replaying historical progress", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const created = { type: "fork.created", forkId: "research-0000001", agentId: "agent-1", agentName: "research-0000001", stateDir: "/fleet", sessionPath: "/child", tier: "balanced" };
+  const branch: any[] = [{ type: "custom", customType: "pi-async-fork", data: created }];
+  const { pi, ctx, sent } = harness(root, branch);
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents, () => 0);
+  try {
+    await controller.start(ctx);
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.activity();
+    await waitForLifecycle();
+    assert.equal(sent.length, 0);
+    agents.statusUpdate("working");
+    await waitForLifecycle();
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].details.kind, "progress");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("classifies a prior visible report as progress when a newer report arrives", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx, sent } = harness(root, branch);
+  const agents = new FakeAgents();
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.candidate({ text: "Final answer", cursor: "final-1" });
+    agents.statusUpdate("working");
+    await waitForLifecycle();
+    assert.deepEqual(sent.map((message) => message.details.kind), ["progress"]);
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    now += 10_000;
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    assert.deepEqual(sent.map((message) => message.details.kind), ["progress", "response"]);
+    assert.equal(sent.filter((message) => message.details.cursor === "final-1").length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("does not redeliver a persisted progress cursor after controller restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx, sent } = harness(root, branch);
+  const firstAgents = new FakeAgents();
+  const first = new Controller(pi, configuration, firstAgents, () => 0);
+  try {
+    const forkId = await first.create(ctx, "call-1", "research", "Find the answer.");
+    firstAgents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    firstAgents.activity();
+    firstAgents.statusUpdate("working");
+    await waitForLifecycle();
+    assert.equal(sent.length, 1);
+    branch.push({ type: "custom_message", customType: "pi-async-fork-result", details: { forkId, agentId: "agent-1", cursor: "progress-1" } });
+    await first.stop();
+
+    const restoredAgents = new FakeAgents();
+    const restored = new Controller(pi, configuration, restoredAgents, () => 0);
+    await restored.start(ctx);
+    restoredAgents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    restoredAgents.activity();
+    restoredAgents.statusUpdate("working");
+    await waitForLifecycle();
+    assert.equal(sent.length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("sends a terminal notice after delivered progress when the fork fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx, sent } = harness(root, branch);
+  const agents = new FakeAgents();
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.activity();
+    agents.statusUpdate("working");
+    await waitForLifecycle();
+    assert.deepEqual(sent.map((message) => message.details.kind), ["progress"]);
+
+    agents.statusUpdate("failed");
+    await waitForLifecycle();
+    now += 10_000;
+    agents.statusUpdate("failed");
+    await waitForLifecycle();
+    assert.deepEqual(sent.map((message) => message.details.kind), ["progress", "notice"]);
+    assert.equal(agents.destroyed, 1);
+    assert.equal(branch.filter((entry) => entry?.data?.type === "fork.destroyed").length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("fork status serializes a working update that releases pending progress", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx, sent } = harness(root, branch);
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents, () => 0);
+  try {
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.activity();
+    const result = await controller.status(ctx, forkId);
+    assert.equal(result.state, "working");
+    assert.deepEqual(sent.map((message) => message.details.kind), ["progress"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

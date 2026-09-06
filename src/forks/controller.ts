@@ -7,10 +7,12 @@ import { active, appendCreated, appendDestroyed, project, type Created, type Des
 import { assertForkToolsAvailable, createChildSession, removeChildSession } from "./session.js";
 import { buildAssignedTask } from "./task-prompt.js";
 
+type PendingReport = Candidate & { continued: boolean };
+
 type Running = Created & {
   agent: Agent;
   registered: boolean;
-  candidate?: Candidate;
+  reports: PendingReport[];
   state?: AgentState;
   terminalSince?: number;
   finalizing?: boolean;
@@ -104,7 +106,7 @@ export class Controller {
       try {
         const agent = await this.#agents.restore(record.agentName, record.agentId);
         if (!this.isGeneration(generation)) return;
-        const running: Running = { ...record, agent, registered: true };
+        const running: Running = { ...record, agent, registered: true, reports: [] };
         this.#running.set(record.forkId, running);
         this.observe(ctx, running, generation);
       } catch (error) {
@@ -142,7 +144,7 @@ export class Controller {
           sessionPath: child.path,
           tier,
         };
-        const running: Running = { ...created, agent, registered: false };
+        const running: Running = { ...created, agent, registered: false, reports: [] };
         this.#running.set(forkId, running);
         this.observe(ctx, running, this.#generation);
         await this.#agents.steer(agent, buildAssignedTask(task));
@@ -188,70 +190,90 @@ export class Controller {
       running.state = state;
       if (state === "idle") throw new Error(`Fork ${forkId} is idle and cannot be steered.`);
       if (state === "interrupted" || state === "failed") throw new Error(`Fork ${forkId} is ${state} and cannot be steered.`);
-      const previousCandidate = running.candidate;
-      running.candidate = undefined;
-      running.terminalSince = undefined;
       try {
         await this.#agents.steer(running.agent, message);
       } catch (error) {
-        running.candidate ??= previousCandidate;
         throw error;
       }
+      const pending = running.reports.at(-1);
+      if (pending) pending.continued = true;
+      running.state = "working";
+      running.terminalSince = undefined;
+      await this.process(ctx, running, this.#generation);
     });
   }
 
   async status(ctx: any, forkId: string): Promise<{ state: AgentState | "completed" }> {
     this.resume();
-    const record = project(ctx.sessionManager.getBranch()).get(forkId);
-    if (!record) throw new Error(`Fork ${forkId} was not found on this session branch.`);
-    if (record.destroyed) return { state: "completed" };
-    const running = this.#running.get(forkId);
-    if (!running || running.agentId !== record.agentId) throw new Error(this.#unavailable.get(forkId) ?? `Fork ${forkId} is unavailable in this session.`);
-    const state = await this.#agents.status(running.agent);
-    running.state = state;
-    this.schedule(ctx, running, this.#generation);
+    let state: AgentState | "completed" = "completed";
+    await this.enqueue(async () => {
+      const record = project(ctx.sessionManager.getBranch()).get(forkId);
+      if (!record) throw new Error(`Fork ${forkId} was not found on this session branch.`);
+      if (record.destroyed) return;
+      const running = this.#running.get(forkId);
+      if (!running || running.agentId !== record.agentId) throw new Error(this.#unavailable.get(forkId) ?? `Fork ${forkId} is unavailable in this session.`);
+      state = await this.#agents.status(running.agent);
+      running.state = state;
+      await this.process(ctx, running, this.#generation);
+    });
     return { state };
   }
 
   private observe(ctx: any, running: Running, generation: number): void {
     this.#agents.observe(running.agent, undefined, {
-      onCandidate: (candidate: Candidate) => {
-        if (!this.current(generation, running)) return;
-        running.candidate = candidate;
-        this.schedule(ctx, running, generation);
-      },
-      onStatus: (state: AgentState) => {
-        if (!this.current(generation, running)) return;
+      onCandidate: (candidate: Candidate) => this.schedule(ctx, running, generation, () => {
+        const previous = running.reports.at(-1);
+        if (previous) previous.continued = true;
+        running.reports.push({ ...candidate, continued: false });
+      }),
+      onActivity: () => this.schedule(ctx, running, generation, () => {
+        const pending = running.reports.at(-1);
+        if (pending) pending.continued = true;
+      }),
+      onStatus: (state: AgentState) => this.schedule(ctx, running, generation, () => {
         running.state = state;
         if (state === "starting" || state === "working") running.terminalSince = undefined;
-        this.schedule(ctx, running, generation);
-      },
+      }),
       onError: (error: unknown) => {
         if (this.current(generation, running)) this.#unavailable.set(running.forkId, `Fork ${running.forkId} monitor error: ${errorText(error)}`);
       },
     });
   }
 
-  private schedule(ctx: any, running: Running, generation: number): void {
-    void this.enqueue(async () => this.process(ctx, running, generation)).catch((error) => {
+  private schedule(ctx: any, running: Running, generation: number, update?: () => void): void {
+    void this.enqueue(async () => {
+      if (!this.current(generation, running)) return;
+      update?.();
+      await this.process(ctx, running, generation);
+    }).catch((error) => {
       if (this.current(generation, running)) this.#unavailable.set(running.forkId, `Fork ${running.forkId} lifecycle error: ${errorText(error)}`);
     });
   }
 
   private async process(ctx: any, running: Running, generation: number): Promise<void> {
     if (this.#paused || !this.current(generation, running) || !running.registered || running.finalizing || !this.ownsCurrentBranch(ctx, running)) return;
-    if (running.state === "idle" && running.candidate) {
-      await this.finalize(ctx, running, "response", running.candidate.text, running.candidate.cursor, generation);
+    if (running.state === "working") {
+      while (running.reports[0]?.continued) {
+        const report = running.reports[0];
+        if (!this.#delivery.wasDelivered(ctx.sessionManager.getBranch(), running.forkId, running.agentId, report.cursor)) {
+          await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, "progress", report.text, report.cursor);
+        }
+        running.reports.shift();
+      }
       return;
     }
-    if (running.state === "idle" || running.state === "interrupted" || running.state === "failed") {
-      running.terminalSince ??= this.#now();
-      if (this.#now() - running.terminalSince < SETTLEMENT_GRACE_MS) return;
-      const notice = running.state === "idle"
-        ? NO_OUTPUT_IDLE
-        : `Fork ${running.state} without a confirmed final assistant response.`;
-      await this.finalize(ctx, running, "notice", notice, undefined, generation);
+    if (running.state !== "idle" && running.state !== "interrupted" && running.state !== "failed") return;
+    running.terminalSince ??= this.#now();
+    if (this.#now() - running.terminalSince < SETTLEMENT_GRACE_MS) return;
+    const report = running.reports.at(-1);
+    if (running.state === "idle" && report) {
+      await this.finalize(ctx, running, "response", report.text, report.cursor, generation);
+      return;
     }
+    const notice = running.state === "idle"
+      ? NO_OUTPUT_IDLE
+      : `Fork ${running.state} without a confirmed final assistant response.`;
+    await this.finalize(ctx, running, "notice", notice, undefined, generation);
   }
 
   private async finalize(ctx: any, running: Running, kind: Destroyed["kind"], output: string, cursor: string | undefined, generation: number): Promise<void> {

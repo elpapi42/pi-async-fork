@@ -79,12 +79,19 @@ test("renders fork result messages without duplicating the fork ID", async () =>
       fg: (color: string, text: string) => { colors.push(color); return text; },
       bg: (color: string, text: string) => { colors.push(color); return text; },
     };
-    const response = renderer.renderForkResultMessage(
-      { content: "research-1234567:\n\nResult with `code`.", details: { forkId: "research-1234567", kind: "response" } },
+    const progress = renderer.renderForkResultMessage(
+      { content: "research-1234567:\n\nThis is an intermediate progress report. The fork is still working and can receive steering.\n\nProgress with `code`.", details: { forkId: "research-1234567", kind: "progress" } },
       { expanded: true, outputPad: 2 },
       renderTheme,
     );
-    assert.equal(text(response), "✓ fork research-1234567\nResult with `code`.");
+    assert.equal(text(progress), "● fork research-1234567: working\nProgress with `code`.");
+
+    const response = renderer.renderForkResultMessage(
+      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nResult with `code`.", details: { forkId: "research-1234567", kind: "response" } },
+      { expanded: true, outputPad: 2 },
+      renderTheme,
+    );
+    assert.equal(text(response), "✓ fork research-1234567: completed\nResult with `code`.");
     assert.equal(response.paddingX, 1);
     assert.equal(response.paddingY, 1);
     assert.equal(response.bgFn("panel"), "panel");
@@ -93,19 +100,19 @@ test("renders fork result messages without duplicating the fork ID", async () =>
     assert.ok(colors.includes("customMessageText"));
 
     const collapsed = renderer.renderForkResultMessage(
-      { content: "research-1234567:\n\nHidden result.", details: { forkId: "research-1234567", kind: "response" } },
+      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nHidden result.", details: { forkId: "research-1234567", kind: "response" } },
       { expanded: false, outputPad: 2 },
       theme(),
     );
-    assert.equal(text(collapsed), "✓ fork research-1234567");
+    assert.equal(text(collapsed), "✓ fork research-1234567: completed");
     assert.equal(collapsed.children.length, 1);
 
     const notice = renderer.renderForkResultMessage(
-      { content: "research-1234567:\n\nNo final response.", details: { forkId: "research-1234567", kind: "notice" } },
+      { content: "research-1234567:\n\nThis is a terminal notice. The fork can no longer receive steering.\n\nNo final response.", details: { forkId: "research-1234567", kind: "notice" } },
       { expanded: true },
       theme(),
     );
-    assert.equal(text(notice), "⚠ fork research-1234567\nNo final response.");
+    assert.equal(text(notice), "⚠ fork research-1234567: terminal\nNo final response.");
 
     const legacy = renderer.renderForkResultMessage(
       { content: "research-1234567:\n\nLegacy result.", details: { forkId: "research-1234567" } },
