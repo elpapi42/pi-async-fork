@@ -4,7 +4,15 @@
 
 It provides `create_fork`, `steer_fork`, and `fork_status`. Forks use a separate retained Pi session, send meaningful progress and final reports as parent steering messages, and preserve branch-scoped ownership in the parent Pi session.
 
-Progress reports do not wake an idle parent. During active work, Pi appends progress after the current turn's tool results for a subsequent model call. Progress alone does not cause another call. Final reports and terminal notices still wake an idle parent.
+Progress reports never wake an idle parent. During active work, Pi appends progress after the current turn's tool results for a later model call. Progress alone does not cause that call.
+
+Each new fork defaults to quiet final delivery. Its final report and terminal notice do not wake you when you are idle. Set `triggerTurn: true` when completion must resume authorized work without another user message. With that setting, final reports and terminal notices wake you when you are idle and queue as steering while you are working. Existing ledger records without this setting retain the previous wake-enabled behavior.
+
+## Fork creation
+
+`create_fork` requires `name`, `task`, and `description`. The description is a single-line, 3-to-6-word purpose summary for the user, such as `Trace login session validation`. Describe the work, not fork mechanics. The extension trims outer whitespace and rejects C0 or C1 controls and Unicode line separators `U+2028` and `U+2029`.
+
+New fork records store `description` and `triggerTurn`. The description appears only in TUI metadata. It does not change the model-visible report envelope. Creation and progress, final, and notice headers append ` · <description>` after the public fork ID. Steering and status headers do not change. Historical records or result messages without a description retain their current headers.
 
 ## Configuration
 
@@ -69,7 +77,7 @@ This is the final report. The fork finished and can no longer receive steering.
 <report>
 ```
 
-A terminal notice states that the fork can no longer receive steering. The TUI renders only clean headers: `● fork <forkId>: working` for progress, `✓ fork <forkId>: completed` for final reports, and `⚠ fork <forkId>: terminal` for notices. The model-only status sentence does not appear in expanded Markdown.
+A terminal notice states that the fork can no longer receive steering. The TUI renders only clean headers: `● fork <forkId> · <description>: working` for progress, `✓ fork <forkId> · <description>: completed` for final reports, and `⚠ fork <forkId> · <description>: terminal` for notices. The description is omitted for historical messages that lack it. The model-only status sentence does not appear in expanded Markdown.
 
 Progress and final reports use pi-fleet cursors plus the public fork ID and immutable agent ID for duplicate suppression. Each report remains scoped to its owner branch. An inactive owner branch receives no delivery. If the fork is still working when that branch becomes active, missing progress can replay. If the fork is terminal, only its latest report becomes final. Progress does not add `fork.created` or `fork.destroyed` records.
 

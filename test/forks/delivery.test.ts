@@ -17,22 +17,30 @@ test("formats progress, final, and notice envelopes for the parent model", () =>
   );
 });
 
-test("sends adaptive immediate custom messages in call order", async () => {
+test("keeps progress quiet and applies each fork's final wake choice", async () => {
   const calls: any[] = [];
   const delivery = new Delivery();
   const pi = { sendMessage: (...args: any[]) => calls.push(args) };
   await Promise.all([
-    delivery.deliver(pi, "first-1234567", "a1", "progress", "one", "c1"),
-    delivery.deliver(pi, "second-1234567", "a2", "notice", "two", "c2"),
+    delivery.deliver(pi, "first-1234567", "a1", "progress", "one", "c1", true, "Trace login session validation"),
+    delivery.deliver(pi, "second-1234567", "a2", "notice", "two", "c2", false, "Trace login session validation"),
   ]);
+  await delivery.deliver(pi, "third-1234567", "a3", "response", "three", "c3", false, "Trace login session validation");
+  await delivery.deliver(pi, "fourth-1234567", "a4", "response", "four", "c4", true, "Trace login session validation");
+  await delivery.deliver(pi, "fifth-1234567", "a5", "notice", "five", "c5", true, "Trace login session validation");
   assert.deepEqual(calls.map(([message]) => message.content), [
     "first-1234567:\n\nThis is an intermediate progress report. The fork is still working and can receive steering.\n\none",
     "second-1234567:\n\nThis is a terminal notice. The fork can no longer receive steering.\n\ntwo",
+    "third-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nthree",
+    "fourth-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nfour",
+    "fifth-1234567:\n\nThis is a terminal notice. The fork can no longer receive steering.\n\nfive",
   ]);
-  assert.deepEqual(calls[0][0].details, { forkId: "first-1234567", agentId: "a1", kind: "progress", cursor: "c1" });
-  assert.deepEqual(calls[1][0].details, { forkId: "second-1234567", agentId: "a2", kind: "notice", cursor: "c2" });
-  assert.deepEqual(calls[0][1], { deliverAs: "steer", triggerTurn: false });
-  assert.deepEqual(calls[1][1], { deliverAs: "steer", triggerTurn: true });
-  await delivery.deliver(pi, "third-1234567", "a3", "response", "three", "c3");
-  assert.deepEqual(calls[2][1], { deliverAs: "steer", triggerTurn: true });
+  assert.deepEqual(calls.map(([message]) => message.details.description), Array(5).fill("Trace login session validation"));
+  assert.deepEqual(calls.map(([, options]) => options), [
+    { deliverAs: "steer", triggerTurn: false },
+    { deliverAs: "steer", triggerTurn: false },
+    { deliverAs: "steer", triggerTurn: false },
+    { deliverAs: "steer", triggerTurn: true },
+    { deliverAs: "steer", triggerTurn: true },
+  ]);
 });

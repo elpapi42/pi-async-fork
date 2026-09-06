@@ -16,11 +16,16 @@ test("registers the three public tools with focused task and effort guidance", (
     registerMessageRenderer(type: string, renderer: Function) { messageRenderers.set(type, renderer); },
   });
   assert.deepEqual(tools.map((tool) => tool.name), ["create_fork", "steer_fork", "fork_status"]);
-  assert.match(tools[0].description, /focused task/);
+  assert.match(tools[0].description, /^Create an asynchronous fork for a focused task\. You receive/);
   assert.match(tools[0].description, /terminal notices/);
   assert.doesNotMatch(tools[0].description, /Use it to offload/);
-  assert.match(tools[0].description, /one or two short lowercase letter-only words/);
+  assert.match(tools[0].parameters.properties.name.description, /The tool adds a generated seven-digit suffix to your name/);
+  assert.match(tools[0].parameters.properties.task.description, /^Describe the focused task you want the fork to complete\./);
   assert.match(tools[0].parameters.properties.task.description, /ambiguities outside that authority/);
+  assert.equal(tools[0].parameters.required.includes("description"), true);
+  assert.equal(tools[0].parameters.properties.description.type, "string");
+  assert.equal(tools[0].parameters.properties.description.description, "Summarize the fork's purpose in 3 to 6 words for the user. Describe the work, not the fork mechanics. Example: \"Trace login session validation\".");
+  assert.match(tools[0].parameters.properties.effort.description, /^Choose the fork's reasoning effort\./);
   assert.match(tools[0].parameters.properties.effort.description, /primary cognitive job and required reasoning depth/);
   assert.match(tools[0].parameters.properties.effort.description, /bounded read-only evidence gathering/);
   assert.match(tools[0].parameters.properties.effort.description, /does not make final judgments, recommendations, diagnoses, approval or gate decisions, or changes/);
@@ -29,9 +34,12 @@ test("registers the three public tools with focused task and effort guidance", (
   assert.match(tools[0].parameters.properties.effort.description, /Effort changes reasoning depth, not task scope/);
   assert.match(tools[0].parameters.properties.effort.description, /If fast evidence needs judgment, use balanced; if it exposes complex uncertainty, use deep/);
   assert.match(tools[0].parameters.properties.effort.description, /If unsure, use balanced/);
+  assert.equal(tools[0].parameters.properties.triggerTurn.type, "boolean");
+  assert.match(tools[0].parameters.properties.triggerTurn.description, /^Choose whether the fork's final report or terminal notice starts a turn for you when you are idle\./);
+  assert.match(tools[0].parameters.properties.triggerTurn.description, /Defaults to false/);
   assert.equal(Object.hasOwn(tools[0].parameters.properties, "tier"), false);
   assert.match(tools[1].description, /active async fork/);
-  assert.match(tools[1].parameters.properties.message.description, /current task/);
+  assert.match(tools[1].parameters.properties.message.description, /^Write an instruction/);
   assert.equal(tools[2].description, "Get the current status of an async fork. Use the complete fork ID returned by create_fork. Do not shorten, modify, or reconstruct it.");
   assert.equal(typeof tools[0].renderCall, "function");
   assert.equal(typeof tools[0].renderResult, "function");
@@ -46,13 +54,13 @@ test("registers the three public tools with focused task and effort guidance", (
   assert.ok(messageRenderers.has("pi-async-fork-result"));
 });
 
-test("forwards create_fork effort to the controller", async () => {
+test("forwards create_fork effort and triggerTurn to the controller", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-async-fork-index-"));
   const agentDir = join(root, "agent");
   const cwd = join(root, "project");
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   const originalCreate = Controller.prototype.create;
-  let receivedEffort: unknown;
+  const received: Array<{ description: unknown; effort: unknown; triggerTurn: unknown }> = [];
   try {
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "settings.json"), JSON.stringify({
@@ -63,17 +71,24 @@ test("forwards create_fork effort to the controller", async () => {
       },
     }));
     process.env.PI_CODING_AGENT_DIR = agentDir;
-    Controller.prototype.create = async function (_ctx, _toolCallId, _name, _task, effort) {
-      receivedEffort = effort;
+    (Controller.prototype.create as any) = async function (_ctx: unknown, _toolCallId: unknown, _name: unknown, _task: unknown, description: unknown, effort: unknown, _signal: unknown, triggerTurn: unknown) {
+      received.push({ description, effort, triggerTurn });
       return "research-1234567";
-    } as typeof Controller.prototype.create;
+    };
     const tools: any[] = [];
     register({ on() {}, registerTool(tool: unknown) { tools.push(tool); }, registerMessageRenderer() {} });
-    const result = await tools.find((tool) => tool.name === "create_fork").execute(
-      "call", { name: "research", task: "Do the task.", effort: "fast" }, new AbortController().signal, undefined, { cwd, sessionManager: {} },
-    );
-    assert.equal(receivedEffort, "fast");
-    assert.equal(result.content[0].text, "research-1234567");
+    const create = tools.find((tool) => tool.name === "create_fork");
+    for (const [effort, triggerTurn] of [["fast", undefined], ["balanced", false], ["deep", true]] as const) {
+      const result = await create.execute(
+        "call", { name: "research", task: "Do the task.", description: "Complete the assigned task", effort, ...(triggerTurn === undefined ? {} : { triggerTurn }) }, new AbortController().signal, undefined, { cwd, sessionManager: {} },
+      );
+      assert.equal(result.content[0].text, "research-1234567");
+    }
+    assert.deepEqual(received, [
+      { description: "Complete the assigned task", effort: "fast", triggerTurn: false },
+      { description: "Complete the assigned task", effort: "balanced", triggerTurn: false },
+      { description: "Complete the assigned task", effort: "deep", triggerTurn: true },
+    ]);
   } finally {
     Controller.prototype.create = originalCreate;
     if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;

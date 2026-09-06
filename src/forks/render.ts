@@ -1,8 +1,9 @@
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { validateDescription } from "./identity.js";
 
 type RenderContext = {
-  args?: { name?: unknown; effort?: unknown; tier?: unknown; task?: unknown; forkId?: unknown; message?: unknown };
+  args?: { name?: unknown; description?: unknown; effort?: unknown; tier?: unknown; task?: unknown; forkId?: unknown; message?: unknown };
   state: Record<string, unknown>;
   lastComponent?: unknown;
   isError?: boolean;
@@ -23,10 +24,20 @@ function pendingId(args: RenderContext["args"]): string {
   return `${name}-…`;
 }
 
+function descriptionText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  try {
+    return validateDescription(value);
+  } catch {
+    return "";
+  }
+}
+
 function createCallText(args: RenderContext["args"], forkId: unknown, theme: any): string {
   const effort = typeof args?.effort === "string" ? args.effort : typeof args?.tier === "string" ? args.tier : "balanced";
   const id = typeof forkId === "string" ? forkId : pendingId(args);
-  return `${theme.fg("toolTitle", theme.bold("create_fork"))} ${theme.fg("muted", `[${effort}]`)} ${theme.fg("accent", id)}`;
+  const description = descriptionText(args?.description);
+  return `${theme.fg("toolTitle", theme.bold("create_fork"))} ${theme.fg("muted", `[${effort}]`)} ${theme.fg("accent", id)}${description ? theme.fg("muted", ` · ${description}`) : ""}`;
 }
 
 function forkId(args: RenderContext["args"]): string {
@@ -76,7 +87,8 @@ export function renderForkResultMessage(message: any, { expanded }: { expanded: 
         ? theme.fg("warning", "⚠")
         : theme.fg("muted", "•");
   const state = kind === "progress" ? "working" : kind === "response" ? "completed" : kind === "notice" ? "terminal" : undefined;
-  const header = `${icon} ${theme.fg("toolTitle", theme.bold("fork"))} ${theme.fg("accent", forkId)}${state ? `: ${statusColor(state, theme)}` : ""}`;
+  const description = descriptionText(message?.details?.description);
+  const header = `${icon} ${theme.fg("toolTitle", theme.bold("fork"))} ${theme.fg("accent", forkId)}${description ? theme.fg("muted", ` · ${description}`) : ""}${state ? `: ${statusColor(state, theme)}` : ""}`;
   const box = new Box(1, 1, (text: string) => theme.bg("customMessageBg", text));
   box.addChild(new Text(header, 0, 0));
   if (expanded) {

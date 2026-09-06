@@ -29,6 +29,13 @@ test("projects a creation record without a custom state directory", () => {
   assert.equal(project([entry(defaultState)]).get(created.forkId)?.stateDir, undefined);
 });
 
+test("projects legacy and explicit final wake choices and descriptions", () => {
+  assert.equal(project([entry(created)]).get(created.forkId)?.triggerTurn, undefined);
+  assert.equal(project([entry(created)]).get(created.forkId)?.description, undefined);
+  assert.equal(project([entry({ ...created, triggerTurn: false, description: "Trace login session validation" })]).get(created.forkId)?.triggerTurn, false);
+  assert.equal(project([entry({ ...created, triggerTurn: true, description: "Trace login session validation" })]).get(created.forkId)?.description, "Trace login session validation");
+});
+
 test("does not accept a destroy record for another agent identity", () => {
   const records = project([entry(created), entry({ type: "fork.destroyed", forkId: created.forkId, agentId: "other", kind: "notice", output: "done" })]);
   assert.equal(records.get(created.forkId)?.destroyed, undefined);
@@ -51,6 +58,15 @@ test("ignores malformed lifecycle records", () => {
     cursor: 1,
   };
 
-  const records = project([entry(malformedCreated), entry(malformedDestroyed)]);
+  const records = project([
+    entry(malformedCreated),
+    entry(malformedDestroyed),
+    entry({ ...created, triggerTurn: "false" }),
+    entry({ ...created, triggerTurn: null }),
+    entry({ ...created, triggerTurn: 0 }),
+    entry({ ...created, description: "Only two" }),
+    entry({ ...created, description: "Trace login\nsession validation" }),
+    entry({ ...created, description: 1 }),
+  ]);
   assert.equal(records.size, 0);
 });

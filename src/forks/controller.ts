@@ -2,7 +2,7 @@ import { AgentNameTakenError, type Agent, type AgentState } from "@elpapi42/pi-f
 import type { Configuration, Tier } from "../configuration.js";
 import { Agents, type Candidate, type ManagedAgents } from "./agent.js";
 import { Delivery } from "./delivery.js";
-import { createId, maxIdAttempts } from "./identity.js";
+import { createId, maxIdAttempts, validateDescription } from "./identity.js";
 import { active, appendCreated, appendDestroyed, project, type Created, type Destroyed } from "./ledger.js";
 import { assertForkToolsAvailable, createChildSession, removeChildSession } from "./session.js";
 import { buildAssignedTask } from "./task-prompt.js";
@@ -95,7 +95,7 @@ export class Controller {
       if (!this.isGeneration(generation)) return;
       if (record.destroyed) {
         if (!this.#delivery.wasDelivered(ctx.sessionManager.getBranch(), record.forkId, record.agentId, record.destroyed.cursor)) {
-          await this.#delivery.deliver(this.#pi, record.forkId, record.agentId, record.destroyed.kind, record.destroyed.output, record.destroyed.cursor);
+          await this.#delivery.deliver(this.#pi, record.forkId, record.agentId, record.destroyed.kind, record.destroyed.output, record.destroyed.cursor, record.triggerTurn ?? true, record.description);
         }
         continue;
       }
@@ -115,9 +115,10 @@ export class Controller {
     }
   }
 
-  async create(ctx: any, toolCallId: string, name: string, task: string, tier: Tier = "balanced", signal?: AbortSignal): Promise<string> {
+  async create(ctx: any, toolCallId: string, name: string, task: string, description: string, tier: Tier = "balanced", signal?: AbortSignal, triggerTurn = false): Promise<string> {
     this.resume();
     assertForkToolsAvailable(ctx.sessionManager);
+    description = validateDescription(description);
     const existingIds = new Set(project(ctx.sessionManager.getBranch()).keys());
     for (let attempt = 0; attempt < maxIdAttempts; attempt += 1) {
       throwIfAborted(signal);
@@ -143,6 +144,8 @@ export class Controller {
           ...(this.#configuration.stateDir ? { stateDir: this.#configuration.stateDir } : {}),
           sessionPath: child.path,
           tier,
+          triggerTurn,
+          description,
         };
         const running: Running = { ...created, agent, registered: false, reports: [] };
         this.#running.set(forkId, running);
@@ -250,7 +253,7 @@ export class Controller {
       while (running.reports[0]?.continued) {
         const report = running.reports[0];
         if (!this.#delivery.wasDelivered(ctx.sessionManager.getBranch(), running.forkId, running.agentId, report.cursor)) {
-          await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, "progress", report.text, report.cursor);
+          await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, "progress", report.text, report.cursor, true, running.description);
         }
         running.reports.shift();
       }
@@ -281,7 +284,7 @@ export class Controller {
       const destroyed: Destroyed = { type: "fork.destroyed", forkId: running.forkId, agentId: running.agentId, kind, output, cursor };
       appendDestroyed(this.#pi, destroyed);
       this.#running.delete(running.forkId);
-      await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, kind, output, cursor);
+      await this.#delivery.deliver(this.#pi, running.forkId, running.agentId, kind, output, cursor, running.triggerTurn ?? true, running.description);
     } finally {
       running.finalizing = false;
     }

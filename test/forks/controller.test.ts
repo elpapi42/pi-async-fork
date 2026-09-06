@@ -27,11 +27,13 @@ class FakeAgents implements ManagedAgents {
   destroyHook?: () => Promise<void>;
   sent: string[] = [];
   observed = 0;
+  created = 0;
   stopped = 0;
   createdEnvironment: Record<string, string> | undefined;
   async start() {}
   async stop() { this.stopped += 1; }
   async create(name: string, _cwd?: string, _agentDir?: string, _piArgs?: string[], env?: Record<string, string>) {
+    this.created += 1;
     this.createdEnvironment = env;
     return { ...this.agent, name } as Agent;
   }
@@ -73,8 +75,11 @@ test("registers only after task acceptance and finalizes a settled candidate", a
   let now = 0;
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     assert.match(forkId, /^research-\d{7}$/);
+    const created = branch.find((entry) => entry?.data?.type === "fork.created");
+    assert.equal(created.data.triggerTurn, false);
+    assert.equal(created.data.description, "Find the requested answer");
     assert.equal(branch.filter((entry) => entry?.data?.type === "fork.created").length, 1);
     assert.equal(agents.sent[0], buildAssignedTask("Find the answer."));
 
@@ -93,6 +98,39 @@ test("registers only after task acceptance and finalizes a settled candidate", a
     assert.equal(sent.length, 1);
     assert.match(sent[0].content, new RegExp(`^${forkId}:\\n\\nThis is the final report`));
     assert.equal(sent[0].details.kind, "response");
+    assert.equal(sent[0].details.description, "Find the requested answer");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects an invalid description before creating a child session or fleet agent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents);
+  try {
+    await assert.rejects(
+      () => controller.create(ctx, "call-1", "research", "Find the answer.", "Only two"),
+      /Fork description must contain 3 to 6 words/,
+    );
+    assert.equal(agents.created, 0);
+    assert.equal(branch.some((entry) => entry?.data?.type === "fork.created"), false);
+    await assert.rejects(() => readdir(join(root, "async-forks")), { code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("persists an explicit final wake choice", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx } = harness(root, branch);
+  const controller = new Controller(pi, configuration, new FakeAgents());
+  try {
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer", "balanced", undefined, true);
+    assert.equal(branch.find((entry) => entry?.data?.type === "fork.created")?.data.triggerTurn, true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -106,7 +144,7 @@ test("passes configured child-Pi environment to agent creation", async () => {
   const env = Object.assign(Object.create(null), { PI_OBSERVATIONAL_MEMORY_PASSIVE: "1" });
   const controller = new Controller(pi, { ...configuration, env }, agents);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     assert.deepEqual(agents.createdEnvironment, env);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -120,7 +158,7 @@ test("omits the state directory from a default-state fork record", async () => {
   const agents = new FakeAgents();
   const controller = new Controller(pi, { ...configuration, stateDir: undefined }, agents);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     const created = branch.find((item) => item?.data?.type === "fork.created");
     assert.equal(Object.hasOwn(created.data, "stateDir"), false);
   } finally {
@@ -163,7 +201,7 @@ test("drains active finalization before a session tree transition", async () => 
   agents.destroyHook = async () => { destroyStarted(); await release; };
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     agents.candidate({ text: "Answer", cursor: "cursor-1" });
     agents.statusUpdate("idle");
     await waitForLifecycle();
@@ -197,7 +235,7 @@ test("does not register a fork when initial task acceptance fails", async () => 
   agents.steer = async () => { throw new Error("rejected"); };
   const controller = new Controller(pi, configuration, agents);
   try {
-    await assert.rejects(() => controller.create(ctx, "call-1", "research", "Find the answer."), /rejected/);
+    await assert.rejects(() => controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer"), /rejected/);
     assert.equal(branch.some((entry) => entry?.data?.type === "fork.created"), false);
     assert.equal(agents.destroyed, 1);
   } finally {
@@ -205,17 +243,17 @@ test("does not register a fork when initial task acceptance fails", async () => 
   }
 });
 
-function harness(root: string, branch: any[], sent: any[] = []) {
+function harness(root: string, branch: any[], sent: any[] = [], sendOptions: any[] = []) {
   const pi = {
     appendEntry(_type: string, data: unknown) { branch.push({ type: "custom", customType: "pi-async-fork", data }); },
-    sendMessage(message: unknown) { sent.push(message); },
+    sendMessage(message: unknown, options: unknown) { sent.push(message); sendOptions.push(options); },
   };
   const ctx = { cwd: root, sessionManager: {
     getBranch: () => branch,
     getSessionFile: () => join(root, "parent.jsonl"),
     getHeader: () => ({ type: "session", version: 3, id: "parent", cwd: root }),
   } };
-  return { pi, ctx, sent };
+  return { pi, ctx, sent, sendOptions };
 }
 
 function invokingBranch() {
@@ -241,7 +279,7 @@ test("buffers a fast candidate until task acceptance registers the fork", async 
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
     await controller.beforeTree();
-    const creating = controller.create(ctx, "call-1", "research", "Find the answer.");
+    const creating = controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     await waitForLifecycle();
     assert.equal(branch.some((item) => item?.data?.type === "fork.created"), false);
     assert.equal(agents.destroyed, 0);
@@ -268,7 +306,7 @@ test("starts the no-output grace period when idle is observed", async () => {
   let now = 0;
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     now = 50_000;
     agents.statusUpdate("idle");
     await waitForLifecycle();
@@ -298,7 +336,7 @@ test("defers inactive-branch completion until the owning branch is active again"
   let now = 0;
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     branch = [];
     agents.candidate({ text: "Answer", cursor: "c1" });
     agents.statusUpdate("idle");
@@ -325,15 +363,56 @@ test("replays completed output only when parent metadata has no match", async ()
   const created = { type: "fork.created", forkId: "research-0000001", agentId: "agent-1", agentName: "research-0000001", stateDir: "/fleet", sessionPath: "/child", tier: "balanced" };
   const destroyed = { type: "fork.destroyed", forkId: created.forkId, agentId: created.agentId, kind: "response", output: "Answer", cursor: "c1" };
   const branch: any[] = [{ type: "custom", customType: "pi-async-fork", data: created }, { type: "custom", customType: "pi-async-fork", data: destroyed }];
-  const { pi, ctx, sent } = harness(root, branch);
+  const { pi, ctx, sent, sendOptions } = harness(root, branch);
   const controller = new Controller(pi, configuration, new FakeAgents());
   try {
     await controller.start(ctx);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].details.kind, "response");
+    assert.deepEqual(sendOptions[0], { deliverAs: "steer", triggerTurn: true });
     branch.push({ type: "custom_message", customType: "pi-async-fork-result", details: { forkId: created.forkId, agentId: created.agentId, cursor: "c1" } });
     await controller.afterTree(ctx);
     assert.equal(sent.length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("replays completed output with its saved final wake choice", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const destroyed = { type: "fork.destroyed", forkId: "research-0000001", agentId: "agent-1", kind: "response", output: "Answer", cursor: "c1" };
+  try {
+    for (const triggerTurn of [false, true]) {
+      const created = { type: "fork.created", forkId: destroyed.forkId, agentId: destroyed.agentId, agentName: "research-0000001", stateDir: "/fleet", sessionPath: "/child", tier: "balanced", triggerTurn };
+      const branch: any[] = [{ type: "custom", customType: "pi-async-fork", data: created }, { type: "custom", customType: "pi-async-fork", data: destroyed }];
+      const { pi, ctx, sendOptions } = harness(root, branch);
+      await new Controller(pi, configuration, new FakeAgents()).start(ctx);
+      assert.deepEqual(sendOptions, [{ deliverAs: "steer", triggerTurn }]);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("restores active forks with their saved final wake choice", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  try {
+    for (const triggerTurn of [false, true]) {
+      const created = { type: "fork.created", forkId: "research-0000001", agentId: "agent-1", agentName: "research-0000001", stateDir: "/fleet", sessionPath: "/child", tier: "balanced", triggerTurn };
+      const branch: any[] = [{ type: "custom", customType: "pi-async-fork", data: created }];
+      const { pi, ctx, sendOptions } = harness(root, branch);
+      const agents = new FakeAgents();
+      let now = 0;
+      const controller = new Controller(pi, configuration, agents, () => now);
+      await controller.start(ctx);
+      agents.candidate({ text: "Answer", cursor: "c1" });
+      agents.statusUpdate("idle");
+      await waitForLifecycle();
+      now += 10_000;
+      agents.statusUpdate("idle");
+      await waitForLifecycle();
+      assert.deepEqual(sendOptions, [{ deliverAs: "steer", triggerTurn }]);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -373,7 +452,7 @@ test("retains the child session when failed creation cleanup leaves an agent ali
   const controller = new Controller(pi, configuration, agents);
   try {
     await assert.rejects(
-      () => controller.create(ctx, "call-1", "research", "Find the answer."),
+      () => controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer"),
       /Agent cleanup failed: destroy failed.*Child session retained/,
     );
     assert.equal(branch.some((item) => item?.data?.type === "fork.created"), false);
@@ -392,7 +471,7 @@ test("serializes accepted steering before automatic destruction", async () => {
   let now = 0;
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     let sendStarted!: () => void;
     const started = new Promise<void>((resolve) => { sendStarted = resolve; });
     let releaseSend!: () => void;
@@ -437,7 +516,7 @@ test("rejects direct creation from a marked child session", async () => {
     },
   };
   await assert.rejects(
-    () => controller.create(ctx, "call", "research", "Do the task."),
+    () => controller.create(ctx, "call", "research", "Do the task.", "Complete the assigned task"),
     /This session is an async fork\. Async fork tools are unavailable here\./,
   );
   assert.equal(agents.observed, 0);
@@ -472,7 +551,7 @@ test("reports state-directory mismatch and ignores abort after accepted steering
     branch.length = 0;
     branch.push(...invokingBranch());
     await controller.afterTree(ctx);
-    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     const abort = new AbortController();
     agents.steer = async (_agent, message) => { agents.sent.push(message); abort.abort(); };
     await controller.steer(ctx, forkId, "Continue.", abort.signal);
@@ -489,7 +568,7 @@ test("delivers a continued report as progress without destroying the fork", asyn
   const agents = new FakeAgents();
   const controller = new Controller(pi, configuration, agents, () => 0);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
     agents.activity();
     agents.statusUpdate("working");
@@ -497,6 +576,7 @@ test("delivers a continued report as progress without destroying the fork", asyn
     assert.equal(agents.destroyed, 0);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].details.kind, "progress");
+    assert.equal(sent[0].details.description, "Find the requested answer");
     assert.match(sent[0].content, /intermediate progress report/);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -511,7 +591,7 @@ test("preserves progress order and finalizes only the last pending report after 
   let now = 0;
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     agents.candidate({ text: "Checkpoint one", cursor: "progress-1" });
     agents.activity();
     agents.candidate({ text: "Checkpoint two", cursor: "progress-2" });
@@ -542,7 +622,7 @@ test("late continuation and accepted steering preserve progress before finalizat
   let now = 0;
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
     agents.statusUpdate("idle");
     await waitForLifecycle();
@@ -568,7 +648,7 @@ test("defers progress on an inactive branch and suppresses a replayed delivered 
   const agents = new FakeAgents();
   const controller = new Controller(pi, configuration, agents, () => 0);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     branch = [];
     agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
     agents.activity();
@@ -603,7 +683,7 @@ test("keeps delayed activity from turning an idle fork back into working", async
   let now = 0;
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     agents.candidate({ text: "Final answer", cursor: "final-1" });
     agents.statusUpdate("idle");
     agents.activity();
@@ -628,7 +708,7 @@ test("does not send stale progress after failed status arrives before delayed ac
   let now = 0;
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
     agents.statusUpdate("failed");
     agents.activity();
@@ -675,7 +755,7 @@ test("classifies a prior visible report as progress when a newer report arrives"
   let now = 0;
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
     agents.candidate({ text: "Final answer", cursor: "final-1" });
     agents.statusUpdate("working");
@@ -700,7 +780,7 @@ test("does not redeliver a persisted progress cursor after controller restart", 
   const firstAgents = new FakeAgents();
   const first = new Controller(pi, configuration, firstAgents, () => 0);
   try {
-    const forkId = await first.create(ctx, "call-1", "research", "Find the answer.");
+    const forkId = await first.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     firstAgents.candidate({ text: "Checkpoint", cursor: "progress-1" });
     firstAgents.activity();
     firstAgents.statusUpdate("working");
@@ -730,7 +810,7 @@ test("sends a terminal notice after delivered progress when the fork fails", asy
   let now = 0;
   const controller = new Controller(pi, configuration, agents, () => now);
   try {
-    await controller.create(ctx, "call-1", "research", "Find the answer.");
+    await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
     agents.activity();
     agents.statusUpdate("working");
@@ -757,7 +837,7 @@ test("fork status reports raw state without reordering lifecycle observation", a
   const agents = new FakeAgents();
   const controller = new Controller(pi, configuration, agents, () => 0);
   try {
-    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.");
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
     agents.activity();
     const result = await controller.status(ctx, forkId);

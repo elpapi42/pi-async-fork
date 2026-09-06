@@ -15,16 +15,16 @@ export function formatOutput(forkId: string, output: string, kind: ReportKind): 
 export class Delivery {
   #tail = Promise.resolve();
 
-  deliver(pi: any, forkId: string, agentId: string, kind: ReportKind, output: string, cursor: string | undefined): Promise<void> {
+  deliver(pi: any, forkId: string, agentId: string, kind: ReportKind, output: string, cursor: string | undefined, triggerTurn = true, description?: string): Promise<void> {
     const work = this.#tail.catch(() => undefined).then(() => {
       pi.sendMessage(
         {
           customType: RESULT_TYPE,
           content: formatOutput(forkId, output, kind),
           display: true,
-          details: { forkId, agentId, kind, cursor },
+          details: { forkId, agentId, kind, cursor, ...(description === undefined ? {} : { description }) },
         },
-        { deliverAs: "steer", triggerTurn: kind !== "progress" },
+        { deliverAs: "steer", triggerTurn: kind === "progress" ? false : triggerTurn },
       );
     });
     this.#tail = work;

@@ -24,6 +24,7 @@ async function loadRenderer() {
     export class Markdown { constructor(text, paddingX, paddingY, theme, options) { this.text = text; this.paddingX = paddingX; this.paddingY = paddingY; this.theme = theme; this.options = options; } }
   `);
   const source = await readFile(join(process.cwd(), "src/forks/render.ts"), "utf8");
+  await writeFile(join(directory, "identity.ts"), await readFile(join(process.cwd(), "src/forks/identity.ts"), "utf8"));
   await writeFile(
     join(directory, "render.ts"),
     source
@@ -53,18 +54,18 @@ test("renders pending and completed fork IDs in the call line", async () => {
   const { renderer, cleanup } = await loadRenderer();
   try {
     const state: Record<string, unknown> = {};
-    const pending = renderer.renderCreateForkCall({ name: "review", effort: "fast" }, theme(), { state });
-    assert.equal(text(pending), "create_fork [fast] review-…");
+    const pending = renderer.renderCreateForkCall({ name: "review", description: "Review active authorization rules", effort: "fast" }, theme(), { state });
+    assert.equal(text(pending), "create_fork [fast] review-… · Review active authorization rules");
 
     renderer.renderCreateForkResult(
       { content: [], details: { forkId: "review-1234567" } },
       { expanded: false },
       theme(),
-      { state, args: { name: "review", effort: "fast" }, isError: false, invalidate: () => { throw new Error("must not invalidate while rendering"); } },
+      { state, args: { name: "review", description: "Review active authorization rules", effort: "fast" }, isError: false, invalidate: () => { throw new Error("must not invalidate while rendering"); } },
     );
-    assert.equal(text(pending), "create_fork [fast] review-1234567");
-    const completed = renderer.renderCreateForkCall({ name: "review", effort: "fast" }, theme(), { state, lastComponent: pending });
-    assert.equal(text(completed), "create_fork [fast] review-1234567");
+    assert.equal(text(pending), "create_fork [fast] review-1234567 · Review active authorization rules");
+    const completed = renderer.renderCreateForkCall({ name: "review", description: "Review active authorization rules", effort: "fast" }, theme(), { state, lastComponent: pending });
+    assert.equal(text(completed), "create_fork [fast] review-1234567 · Review active authorization rules");
     assert.equal(text(renderer.renderCreateForkCall({ name: "review", tier: "fast" }, theme(), { state: {} })), "create_fork [fast] review-…");
   } finally {
     await cleanup();
@@ -81,18 +82,18 @@ test("renders fork result messages without duplicating the fork ID", async () =>
       bg: (color: string, text: string) => { colors.push(color); return text; },
     };
     const progress = renderer.renderForkResultMessage(
-      { content: "research-1234567:\n\nThis is an intermediate progress report. The fork is still working and can receive steering.\n\nProgress with `code`.", details: { forkId: "research-1234567", kind: "progress" } },
+      { content: "research-1234567:\n\nThis is an intermediate progress report. The fork is still working and can receive steering.\n\nProgress with `code`.", details: { forkId: "research-1234567", kind: "progress", description: "Trace login session validation" } },
       { expanded: true, outputPad: 2 },
       renderTheme,
     );
-    assert.equal(text(progress), "● fork research-1234567: working\nProgress with `code`.");
+    assert.equal(text(progress), "● fork research-1234567 · Trace login session validation: working\nProgress with `code`.");
 
     const response = renderer.renderForkResultMessage(
-      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nResult with `code`.", details: { forkId: "research-1234567", kind: "response" } },
+      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nResult with `code`.", details: { forkId: "research-1234567", kind: "response", description: "Trace login session validation" } },
       { expanded: true, outputPad: 2 },
       renderTheme,
     );
-    assert.equal(text(response), "✓ fork research-1234567: completed\nResult with `code`.");
+    assert.equal(text(response), "✓ fork research-1234567 · Trace login session validation: completed\nResult with `code`.");
     assert.equal(response.paddingX, 1);
     assert.equal(response.paddingY, 1);
     assert.equal(response.bgFn("panel"), "panel");
@@ -101,19 +102,19 @@ test("renders fork result messages without duplicating the fork ID", async () =>
     assert.ok(colors.includes("customMessageText"));
 
     const collapsed = renderer.renderForkResultMessage(
-      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nHidden result.", details: { forkId: "research-1234567", kind: "response" } },
+      { content: "research-1234567:\n\nThis is the final report. The fork finished and can no longer receive steering.\n\nHidden result.", details: { forkId: "research-1234567", kind: "response", description: "Trace login session validation" } },
       { expanded: false, outputPad: 2 },
       theme(),
     );
-    assert.equal(text(collapsed), "✓ fork research-1234567: completed");
+    assert.equal(text(collapsed), "✓ fork research-1234567 · Trace login session validation: completed");
     assert.equal(collapsed.children.length, 1);
 
     const notice = renderer.renderForkResultMessage(
-      { content: "research-1234567:\n\nThis is a terminal notice. The fork can no longer receive steering.\n\nNo final response.", details: { forkId: "research-1234567", kind: "notice" } },
+      { content: "research-1234567:\n\nThis is a terminal notice. The fork can no longer receive steering.\n\nNo final response.", details: { forkId: "research-1234567", kind: "notice", description: "Trace login session validation" } },
       { expanded: true },
       theme(),
     );
-    assert.equal(text(notice), "⚠ fork research-1234567: terminal\nNo final response.");
+    assert.equal(text(notice), "⚠ fork research-1234567 · Trace login session validation: terminal\nNo final response.");
 
     const legacy = renderer.renderForkResultMessage(
       { content: "research-1234567:\n\nLegacy result.", details: { forkId: "research-1234567" } },
@@ -202,19 +203,19 @@ test("renders one expanded task without reentrant invalidation and keeps creatio
   const { renderer, cleanup } = await loadRenderer();
   try {
     const state: Record<string, unknown> = {};
-    const call = renderer.renderCreateForkCall({ name: "review", effort: "fast" }, theme(), { state });
+    const call = renderer.renderCreateForkCall({ name: "review", description: "Inspect fork controller lifecycle", effort: "fast" }, theme(), { state });
     const expanded = renderer.renderCreateForkResult(
       { content: [{ type: "text", text: "review-1234567" }], details: { forkId: "review-1234567" } },
       { expanded: true },
       theme(),
       {
         state,
-        args: { name: "review", effort: "fast", task: "Inspect the controller." },
+        args: { name: "review", description: "Inspect fork controller lifecycle", effort: "fast", task: "Inspect the controller." },
         isError: false,
         invalidate: () => { throw new Error("must not invalidate while rendering"); },
       },
     );
-    assert.equal(text(call), "create_fork [fast] review-1234567");
+    assert.equal(text(call), "create_fork [fast] review-1234567 · Inspect fork controller lifecycle");
     assert.equal(expanded.children[0].size, 1);
     assert.equal(text(expanded), "─── Task ───\nInspect the controller.");
 

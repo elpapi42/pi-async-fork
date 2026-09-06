@@ -1,4 +1,5 @@
 import type { Tier } from "../configuration.js";
+import { validateDescription } from "./identity.js";
 
 export const ENTRY_TYPE = "pi-async-fork";
 export const RESULT_TYPE = "pi-async-fork-result";
@@ -11,6 +12,8 @@ export type Created = {
   stateDir?: string;
   sessionPath: string;
   tier: Tier;
+  triggerTurn?: boolean;
+  description?: string;
 };
 
 export type Destroyed = {
@@ -25,6 +28,16 @@ export type Destroyed = {
 export type LifecycleRecord = Created | Destroyed;
 export type ManagedFork = Created & { destroyed?: Destroyed };
 
+function hasValidDescription(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== "string") return false;
+  try {
+    return validateDescription(value) === value;
+  } catch {
+    return false;
+  }
+}
+
 function isLifecycleRecord(value: unknown): value is LifecycleRecord {
   if (!value || typeof value !== "object") return false;
   const raw = value as globalThis.Record<string, unknown>;
@@ -34,7 +47,9 @@ function isLifecycleRecord(value: unknown): value is LifecycleRecord {
       && typeof raw.agentName === "string"
       && (raw.stateDir === undefined || typeof raw.stateDir === "string")
       && typeof raw.sessionPath === "string"
-      && (raw.tier === "fast" || raw.tier === "balanced" || raw.tier === "deep");
+      && (raw.tier === "fast" || raw.tier === "balanced" || raw.tier === "deep")
+      && (raw.triggerTurn === undefined || typeof raw.triggerTurn === "boolean")
+      && hasValidDescription(raw.description);
   }
   return raw.type === "fork.destroyed"
     && typeof raw.forkId === "string"
