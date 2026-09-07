@@ -156,7 +156,7 @@ export function renderForkStatusCall(args: any, theme: any, context: RenderConte
   return component;
 }
 
-export function renderForkStatusResult(result: any, _options: { expanded: boolean }, theme: any, context: RenderContext) {
+export function renderForkStatusResult(result: any, { expanded }: { expanded: boolean }, theme: any, context: RenderContext) {
   const state = result?.details?.state;
   if (!context.isError && typeof state === "string") {
     context.state.status = state;
@@ -166,5 +166,6 @@ export function renderForkStatusResult(result: any, _options: { expanded: boolea
   }
   const output = textContent(result);
   if (context.isError) return new Text(theme.fg("error", output || "Fork status failed."), 0, 0);
-  return new Container();
+  if (!expanded || typeof result?.details?.activityText !== "string") return new Container();
+  return section(theme.fg("muted", "─── Observed activity ───"), theme.fg("dim", result.details.activityText));
 }

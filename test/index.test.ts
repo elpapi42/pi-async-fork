@@ -40,7 +40,11 @@ test("registers the three public tools with focused task and effort guidance", (
   assert.equal(Object.hasOwn(tools[0].parameters.properties, "tier"), false);
   assert.match(tools[1].description, /active async fork/);
   assert.match(tools[1].parameters.properties.message.description, /^Write an instruction/);
-  assert.equal(tools[2].description, "Get the current status of an async fork. Use the complete fork ID returned by create_fork. Do not shorten, modify, or reconstruct it.");
+  assert.match(tools[2].description, /^Get the current status of an async fork\./);
+  assert.match(tools[2].description, /observed activity history/);
+  assert.equal(tools[2].parameters.properties.limit.type, "integer");
+  assert.equal(tools[2].parameters.properties.limit.minimum, 1);
+  assert.equal(tools[2].parameters.required.includes("limit"), false);
   assert.equal(typeof tools[0].renderCall, "function");
   assert.equal(typeof tools[0].renderResult, "function");
   assert.equal(typeof tools[1].renderCall, "function");
@@ -91,6 +95,66 @@ test("forwards create_fork effort to the controller without a wake choice", asyn
     ]);
   } finally {
     Controller.prototype.create = originalCreate;
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("forwards fork status activity limits and formats observed activity", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-index-"));
+  const agentDir = join(root, "agent");
+  const cwd = join(root, "project");
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const originalStatus = Controller.prototype.status;
+  const received: Array<{ forkId: unknown; limit: unknown; signal: unknown }> = [];
+  try {
+    await mkdir(agentDir, { recursive: true });
+    await writeFile(join(agentDir, "settings.json"), JSON.stringify({
+      "pi-async-fork": {
+        fast: { provider: "test", model: "fast", thinking: "low" },
+        balanced: { provider: "test", model: "balanced", thinking: "low" },
+        deep: { provider: "test", model: "deep", thinking: "low" },
+      },
+    }));
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    (Controller.prototype.status as any) = async function (_ctx: unknown, forkId: unknown, limit: unknown, signal: unknown) {
+      received.push({ forkId, limit, signal });
+      return {
+        state: "working",
+        description: "Inspect live activity history",
+        activity: {
+          entries: [
+            { timestamp: 1_725_000_000_000, kind: "thinking" },
+            { timestamp: 1_725_000_000_100, kind: "tool", toolName: "read", args: { path: "src/index.ts" }, redacted: true, truncated: true, argsTruncated: true },
+            { timestamp: null, kind: "message" },
+          ],
+          stopReason: "deadline",
+          outputTruncated: true,
+          incomplete: true,
+        },
+      };
+    };
+    const tools: any[] = [];
+    register({ on() {}, registerTool(tool: unknown) { tools.push(tool); }, registerMessageRenderer() {} });
+    const signal = new AbortController().signal;
+    const result = await tools.find((tool) => tool.name === "fork_status").execute(
+      "call", { forkId: "research-1234567", limit: 2 }, signal, undefined, { cwd, sessionManager: {} },
+    );
+    assert.deepEqual(received, [{ forkId: "research-1234567", limit: 2, signal }]);
+    assert.equal(result.content[0].text, [
+      "research-1234567: working",
+      "",
+      "Observed activity (best effort):",
+      "2024-08-30T06:40:00.000Z thinking",
+      "2024-08-30T06:40:00.100Z tool read {\"path\":\"src/index.ts\"} [redacted] [truncated] [source-truncated]",
+      "unknown-time message",
+      "Activity collection reached its three-second deadline.",
+      "Activity output was truncated.",
+    ].join("\n"));
+    assert.equal(result.details.activityText, result.content[0].text.split("\n\n")[1]);
+  } finally {
+    Controller.prototype.status = originalStatus;
     if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
     await rm(root, { recursive: true, force: true });

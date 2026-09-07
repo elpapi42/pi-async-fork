@@ -12,7 +12,17 @@ Progress reports never wake an idle agent. Final reports and terminal notices al
 
 `create_fork` requires `name`, `task`, and `description`. The description is a single-line, 3-to-6-word purpose summary for the user, such as `Trace login session validation`. Describe the work, not fork mechanics. The extension trims outer whitespace and rejects C0 or C1 controls and Unicode line separators `U+2028` and `U+2029`.
 
-New fork records store `description`. The description appears only in TUI metadata. It does not change the model-visible report envelope. Creation and progress, final, and notice headers append ` · <description>` after the public fork ID. Steering and status headers do not change. Historical records or result messages without a description retain their current headers. Historical `fork.created` records may contain `triggerTurn`; the parser accepts it for compatibility and ignores it.
+New fork records store `description`. The description appears only in TUI metadata. It does not change the model-visible report envelope. Creation and progress, final, and notice headers append ` · <description>` after the public fork ID. Status appends the description after a successful result. Steering headers do not change. Historical records or result messages without a description retain their current headers. Historical `fork.created` records may contain `triggerTurn`; the parser accepts it for compatibility and ignores it.
+
+## Fork status activity
+
+`fork_status` accepts an optional positive integer `limit`. For an active fork, it opens an independent pi-fleet replay from the start and returns an observed activity history. Without `limit`, it returns all observed mapped entries within collector output limits. With `limit`, it retains only the latest observed entries.
+
+Collection stops after one second without an event or three seconds total, so status can take one to three seconds. The result is best effort, not a complete journal snapshot. It can miss activity during replay, stream failure, or subscriber overflow. A collection problem adds a warning but does not fail a valid state result.
+
+The activity list preserves stream order and shows UTC timestamps with `thinking`, `message`, or `tool <name> <compact args>`. It excludes thinking content, visible message content, and tool output. Tool arguments are size-limited and redacted for secret-shaped keys, credentials in URLs, and common authorization strings. This is not a secret-safe audit log.
+
+Automatic cleanup removes completed fork activity with the pi-fleet journal. Completed and historical forks return state and description without an activity section. The collapsed TUI header remains `fork_status <forkId> · <description>: <state>`. Expanded status output shows the observed activity section.
 
 ## Reasoning effort
 

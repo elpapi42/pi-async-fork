@@ -1,6 +1,6 @@
 import { AgentNameTakenError, type Agent, type AgentState } from "@elpapi42/pi-fleet-sdk";
 import type { Configuration, Tier } from "../configuration.js";
-import { Agents, type Candidate, type ManagedAgents } from "./agent.js";
+import { Agents, type ActivityCollection, type Candidate, type ManagedAgents } from "./agent.js";
 import { Delivery } from "./delivery.js";
 import { createId, maxIdAttempts, validateDescription } from "./identity.js";
 import { active, appendCreated, appendDestroyed, project, type Created, type Destroyed } from "./ledger.js";
@@ -205,7 +205,7 @@ export class Controller {
     });
   }
 
-  async status(ctx: any, forkId: string): Promise<{ state: AgentState | "completed"; description?: string }> {
+  async status(ctx: any, forkId: string, limit?: number, signal?: AbortSignal): Promise<{ state: AgentState | "completed"; description?: string; activity?: ActivityCollection }> {
     this.resume();
     const record = project(ctx.sessionManager.getBranch()).get(forkId);
     if (!record) throw new Error(`Fork ${forkId} was not found on this session branch.`);
@@ -213,7 +213,31 @@ export class Controller {
     if (record.destroyed) return { state: "completed", ...description };
     const running = this.#running.get(forkId);
     if (!running || running.agentId !== record.agentId) throw new Error(this.#unavailable.get(forkId) ?? `Fork ${forkId} is unavailable in this session.`);
-    return { state: await this.#agents.status(running.agent), ...description };
+    const state = await this.#agents.status(running.agent);
+    if (!this.#agents.collectActivity) return { state, ...description };
+    let activity: ActivityCollection;
+    try {
+      activity = await this.#agents.collectActivity(running.agent, limit, signal);
+    } catch {
+      activity = { entries: [], stopReason: "error", outputTruncated: false, incomplete: true };
+    }
+    const current = project(ctx.sessionManager.getBranch()).get(forkId);
+    if (!current) throw new Error(`Fork ${forkId} was not found on this session branch.`);
+    const currentDescription = current.description ? { description: current.description } : {};
+    if (current.destroyed) return { state: "completed", ...currentDescription };
+    const currentRunning = this.#running.get(forkId);
+    if (current.agentId !== running.agentId || currentRunning !== running || currentRunning.agentId !== current.agentId) {
+      throw new Error(this.#unavailable.get(forkId) ?? `Fork ${forkId} is unavailable in this session.`);
+    }
+    try {
+      return { state: await this.#agents.status(currentRunning.agent), ...currentDescription, activity };
+    } catch (error) {
+      const settled = project(ctx.sessionManager.getBranch()).get(forkId);
+      if (settled?.destroyed && settled.agentId === running.agentId) {
+        return { state: "completed", ...(settled.description ? { description: settled.description } : {}) };
+      }
+      throw error;
+    }
   }
 
   private observe(ctx: any, running: Running, generation: number): void {

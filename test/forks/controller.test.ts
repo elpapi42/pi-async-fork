@@ -6,7 +6,7 @@ import test from "node:test";
 import type { Agent, AgentState } from "@elpapi42/pi-fleet-sdk";
 import type { Configuration } from "../../src/configuration.js";
 import { Controller } from "../../src/forks/controller.js";
-import type { Candidate, ManagedAgents, ObserverCallbacks } from "../../src/forks/agent.js";
+import type { ActivityCollection, Candidate, ManagedAgents, ObserverCallbacks } from "../../src/forks/agent.js";
 import { buildAssignedTask } from "../../src/forks/task-prompt.js";
 
 const configuration: Configuration = {
@@ -23,6 +23,8 @@ class FakeAgents implements ManagedAgents {
   readonly agent = { id: "agent-1", name: "research-0000001" } as Agent;
   callbacks?: ObserverCallbacks;
   state: AgentState = "working";
+  statusCalls = 0;
+  statusHook?: () => Promise<AgentState>;
   destroyed = 0;
   destroyHook?: () => Promise<void>;
   sent: string[] = [];
@@ -30,6 +32,10 @@ class FakeAgents implements ManagedAgents {
   created = 0;
   stopped = 0;
   createdEnvironment: Record<string, string> | undefined;
+  collected: Array<{ limit: number | undefined; signal: AbortSignal | undefined }> = [];
+  activityCollection: ActivityCollection = { entries: [], stopReason: "idle", outputTruncated: false, incomplete: false };
+  collectError: unknown;
+  collectHook?: () => Promise<ActivityCollection>;
   async start() {}
   async stop() { this.stopped += 1; }
   async create(name: string, _cwd?: string, _agentDir?: string, _piArgs?: string[], env?: Record<string, string>) {
@@ -38,7 +44,12 @@ class FakeAgents implements ManagedAgents {
     return { ...this.agent, name } as Agent;
   }
   async restore() { return this.agent; }
-  async status() { return this.state; }
+  async status() { this.statusCalls += 1; return this.statusHook ? this.statusHook() : this.state; }
+  async collectActivity(_agent: Agent, limit: number | undefined, signal?: AbortSignal) {
+    this.collected.push({ limit, signal });
+    if (this.collectError) throw this.collectError;
+    return this.collectHook ? this.collectHook() : this.activityCollection;
+  }
   async steer(_agent: Agent, message: string) { this.sent.push(message); }
   observe(_agent: Agent, _after: string | undefined, callbacks: ObserverCallbacks) { this.observed += 1; this.callbacks = callbacks; }
   stopObserving() { this.stopped += 1; }
@@ -353,6 +364,125 @@ test("defers inactive-branch completion until the owning branch is active again"
     await waitForLifecycle();
     assert.equal(agents.destroyed, 1);
     assert.equal(owned.some((item) => item?.data?.type === "fork.destroyed"), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("keeps a valid active state when activity diagnostics fail", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents);
+  try {
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
+    agents.collectError = new Error("diagnostic stream failed");
+    const result = await controller.status(ctx, forkId);
+    assert.equal(result.state, "working");
+    assert.deepEqual(result.activity, { entries: [], stopReason: "error", outputTruncated: false, incomplete: true });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reprojects status after activity collection finishes during finalization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  let now = 0;
+  let releaseActivity!: (value: ActivityCollection) => void;
+  const activity = new Promise<ActivityCollection>((resolve) => { releaseActivity = resolve; });
+  agents.collectHook = () => activity;
+  const controller = new Controller(pi, configuration, agents, () => now);
+  try {
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
+    const pendingStatus = controller.status(ctx, forkId);
+    await Promise.resolve();
+    agents.candidate({ text: "Answer", cursor: "c1" });
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    now = 10_000;
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    assert.equal(agents.destroyed, 1);
+    releaseActivity({ entries: [{ timestamp: 1, kind: "thinking" }], stopReason: "idle", outputTruncated: false, incomplete: true });
+    assert.deepEqual(await pendingStatus, { state: "completed", description: "Find the requested answer" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("returns current raw status after activity collection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  let releaseActivity!: (value: ActivityCollection) => void;
+  const activity = new Promise<ActivityCollection>((resolve) => { releaseActivity = resolve; });
+  agents.collectHook = () => activity;
+  const controller = new Controller(pi, configuration, agents);
+  try {
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
+    const pendingStatus = controller.status(ctx, forkId);
+    await Promise.resolve();
+    agents.state = "idle";
+    releaseActivity({ entries: [], stopReason: "idle", outputTruncated: false, incomplete: false });
+    assert.equal((await pendingStatus).state, "idle");
+    assert.equal(agents.statusCalls, 2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("returns completed status when the post-collection status call loses a finalized agent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = invokingBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  let now = 0;
+  let rejectStatus!: (error: Error) => void;
+  let secondStatusStarted!: () => void;
+  const secondStatus = new Promise<void>((resolve) => { secondStatusStarted = resolve; });
+  agents.statusHook = async () => {
+    if (agents.statusCalls === 2) {
+      secondStatusStarted();
+      return new Promise<AgentState>((_resolve, reject) => { rejectStatus = reject; });
+    }
+    return agents.state;
+  };
+  const controller = new Controller(pi, configuration, agents, () => now);
+  try {
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
+    const pendingStatus = controller.status(ctx, forkId);
+    await secondStatus;
+    agents.candidate({ text: "Answer", cursor: "c1" });
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    now = 10_000;
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    assert.equal(agents.destroyed, 1);
+    rejectStatus(new Error("Agent is unavailable"));
+    assert.deepEqual(await pendingStatus, { state: "completed", description: "Find the requested answer" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("returns completed status without activity collection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const created = { type: "fork.created", forkId: "research-0000001", agentId: "agent-1", agentName: "research-0000001", stateDir: "/fleet", sessionPath: "/child", tier: "balanced", description: "Inspect completed fork history" };
+  const destroyed = { type: "fork.destroyed", forkId: created.forkId, agentId: created.agentId, kind: "response", output: "Answer", cursor: "c1" };
+  const branch: any[] = [{ type: "custom", customType: "pi-async-fork", data: created }, { type: "custom", customType: "pi-async-fork", data: destroyed }];
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents);
+  try {
+    const result = await controller.status(ctx, created.forkId);
+    assert.deepEqual(result, { state: "completed", description: "Inspect completed fork history" });
+    assert.deepEqual(agents.collected, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -840,9 +970,22 @@ test("fork status reports raw state without reordering lifecycle observation", a
     const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
     agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
     agents.activity();
-    const result = await controller.status(ctx, forkId);
+    agents.activityCollection = {
+      entries: [
+        { timestamp: 1_725_000_000_000, kind: "thinking" },
+        { timestamp: 1_725_000_000_100, kind: "tool", toolName: "read", args: { path: "src/index.ts" } },
+        { timestamp: 1_725_000_000_200, kind: "message" },
+      ],
+      stopReason: "idle",
+      outputTruncated: false,
+      incomplete: false,
+    };
+    const signal = new AbortController().signal;
+    const result = await controller.status(ctx, forkId, 2, signal);
     assert.equal(result.state, "working");
     assert.equal(result.description, "Find the requested answer");
+    assert.deepEqual(result.activity, agents.activityCollection);
+    assert.deepEqual(agents.collected, [{ limit: 2, signal }]);
     assert.equal(sent.length, 0);
 
     agents.statusUpdate("working");

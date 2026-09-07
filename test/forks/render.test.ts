@@ -178,6 +178,21 @@ test("renders steering and status calls without successful result output", async
       text(renderer.renderForkStatusCall({ forkId: "review-1234567" }, theme(), { state: statusState, lastComponent: pendingStatus })),
       "fork_status review-1234567 · Review active authorization rules: working",
     );
+    const expandedStatus = renderer.renderForkStatusResult(
+      {
+        content: [{ type: "text", text: "review-1234567: working\n\nObserved activity (best effort):\n2024-08-30T06:40:00.000Z thinking" }],
+        details: {
+          state: "working",
+          description: "Review active authorization rules",
+          activityText: "Observed activity (best effort):\n2024-08-30T06:40:00.000Z thinking",
+        },
+      },
+      { expanded: true },
+      theme(),
+      { state: statusState, args: { forkId: "review-1234567" }, isError: false, invalidate: () => { throw new Error("must not invalidate while rendering"); } },
+    );
+    assert.equal(text(expandedStatus), "─── Observed activity ───\nObserved activity (best effort):\n2024-08-30T06:40:00.000Z thinking");
+    assert.equal(text(pendingStatus), "fork_status review-1234567 · Review active authorization rules: working");
 
     const legacyStatusState: Record<string, unknown> = {};
     const legacyStatus = renderer.renderForkStatusCall({ forkId: "legacy-1234567" }, theme(), { state: legacyStatusState });
