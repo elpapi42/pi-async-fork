@@ -97,7 +97,8 @@ export async function createChildSession(sessionManager: any, toolCallId: string
   const parentPath = sessionManager.getSessionFile();
   if (typeof parentPath !== "string" || !parentPath) throw new Error("Cannot create a fork because the parent session has no file path.");
   const header = sessionManager.getHeader();
-  const sessionId = randomUUID();
+  const sessionId = header.id;
+  const fileId = randomUUID();
   const projected = [...branch.slice(0, boundary)];
   const assistant = projectInvokingAssistant(branch[boundary]);
   if (assistant) projected.push(assistant);
@@ -106,7 +107,7 @@ export async function createChildSession(sessionManager: any, toolCallId: string
   projected.push(createForkBoundary(branch[boundary], marker.id, forkId));
 
   const directory = join(dirname(parentPath), "async-forks");
-  const path = join(directory, `${sessionId}.jsonl`);
+  const path = join(directory, `${fileId}.jsonl`);
   await mkdir(directory, { recursive: true });
   const childHeader = { ...header, id: sessionId, parentSession: parentPath };
   await writeFile(path, `${[childHeader, ...projected].map((entry) => JSON.stringify(entry)).join("\n")}\n`, { mode: 0o600, flag: "wx" });
