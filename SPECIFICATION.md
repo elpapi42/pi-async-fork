@@ -197,7 +197,7 @@ Each fork receives a retained child Pi session derived from the parent session's
 
 The child session file must:
 
-- have a fresh session ID;
+- retain the parent header's logical session ID while using a fresh UUID filename created exclusively with `wx`;
 - reference the parent session path;
 - contain the parent header and active branch context needed by the child;
 - remain available after the fleet agent is destroyed so completed fork work can be inspected later.
@@ -206,11 +206,15 @@ The session cut is the assistant entry that contains the current `create_fork` t
 
 The extension clones the invoking assistant entry and removes every `toolCall` content block, including sibling tool calls from the same assistant batch. It preserves remaining `thinking` and `text` blocks in their original order and changes `stopReason` from `toolUse` to `stop`. It keeps a thinking-only cleaned entry and omits the cleaned entry only when no content remains.
 
-After that cleaned entry, the extension adds a `pi-async-fork-child` custom entry containing version `1`, the fresh child session ID, and the public fork ID. The marker links to the cleaned entry, or to the invoking entry's parent when cleaning removed all content. The marker is extension state and does not enter model context. A matching marker and session-header ID identify an async child across restart and branch navigation. Copied markers for other session IDs do not identify the current session.
+After that cleaned entry, the extension adds a `pi-async-fork-child` custom entry containing version `1`, the shared session ID, and the public fork ID. The marker links to the cleaned entry, or to the invoking entry's parent when cleaning removed all content. The marker is extension state and does not enter model context. A matching marker and session-header ID identify an async child across restart and branch navigation. Copied markers for other session IDs do not identify the current session.
 
 The extension always adds a synthetic assistant boundary with a new entry ID after the marker. The boundary links to the marker. It reuses only the source provider, API, and model metadata, has zero usage, has no `responseId` or reasoning signature, and uses `stopReason: "stop"`. Its static text starts with the assistant-role runtime declaration `I am a fork.`, frames earlier messages as main-agent context, commits the worker to the next user task, requires it to stay within scope and report out-of-scope findings without acting on them, explicitly prohibits `create_fork`, `fork_status`, `steer_fork`, and other delegation tools even when available, and contains the two-section report contract. It also prohibits any tool or action that defers work to a later run, future wake-up, passive wait, or background continuation. This rule is capability-based and does not depend on tool names. Normal tools that return during the current run remain allowed. The fork ID appears at the end of the boundary so sibling forks can share the longest input prefix.
 
 The extension must return a clear creation error if it cannot find the current `toolCallId`. It must not fall back to copying the active leaf because that leaf can contain an unresolved tool batch.
+
+The shared logical session ID preserves the parent's provider cache identity. Cache reuse still requires matching models and matching prompt prefixes; this behavior does not establish a live cache improvement without benchmarking. See the background reports in [Pi #8348](https://github.com/earendil-works/pi/issues/8348) and [Codex #44716](https://github.com/openai/codex/issues/44716).
+
+Session IDs are no longer globally unique across the parent and its children. ID-based discovery, resume, tracing, and cleanup can therefore be ambiguous. Pi-fleet's explicit session paths and separate Pi processes reduce, but do not eliminate, this risk. Each child remains marked as an async fork and cannot use async-fork tools. A descendant created directly through the session helper also retains the same logical ID and receives its own file and immediate parent path.
 
 The child must never share the writable parent JSONL session file. Parent and child Pi processes must not append to the same session. Destroying a fleet agent must not delete its retained Pi session file.
 

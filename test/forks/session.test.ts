@@ -134,7 +134,7 @@ test("detects only a child marker for the current session ID", () => {
   assert.equal(isForkChildSession({ getHeader: () => null, getEntries: () => [] }), false);
 });
 
-test("uses a fresh exclusive session filename instead of the public fork ID", async () => {
+test("uses independent child files while retaining the parent session identity", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-async-fork-session-"));
   await writeFile(join(root, "parent.jsonl"), "parent\n");
   try {
@@ -142,6 +142,43 @@ test("uses a fresh exclusive session filename instead of the public fork ID", as
     const second = await createChildSession(manager(root, [entry]), "call-1", "research-1234567");
     assert.notEqual(first.path, second.path);
     assert.match(first.path, /async-forks\/[0-9a-f-]+\.jsonl$/);
+    for (const child of [first, second]) {
+      const childEntries = await entries(child.path);
+      assert.equal(childEntries[0].id, "parent");
+      assert.equal(childEntries[0].parentSession, join(root, "parent.jsonl"));
+      assert.equal(childEntries.at(-2).data.sessionId, "parent");
+      assert.equal(isForkChildSession({
+        getHeader: () => childEntries[0],
+        getEntries: () => childEntries.slice(1),
+      }), true);
+    }
+    assert.equal(await readFile(join(root, "parent.jsonl"), "utf8"), "parent\n");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("retains identity and child detection when deriving a descendant session directly", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-session-"));
+  try {
+    const child = await createChildSession(manager(root, [entry]), "call-1", "research-1234567");
+    const childEntries = await entries(child.path);
+    const descendant = await createChildSession({
+      getBranch: () => [...childEntries.slice(1), entry],
+      getSessionFile: () => child.path,
+      getHeader: () => childEntries[0],
+    }, "call-1", "research-7654321");
+    const descendantEntries = await entries(descendant.path);
+    assert.notEqual(descendant.path, child.path);
+    assert.equal(descendantEntries[0].id, "parent");
+    assert.equal(descendantEntries[0].parentSession, child.path);
+    assert.equal(descendantEntries.at(-2).data.sessionId, "parent");
+    assert.equal(descendantEntries.at(-2).data.forkId, "research-7654321");
+    assert.equal(isForkChildSession({
+      getHeader: () => descendantEntries[0],
+      getEntries: () => descendantEntries.slice(1),
+    }), true);
+    assert.deepEqual(await entries(child.path), childEntries);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
