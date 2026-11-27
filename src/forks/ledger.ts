@@ -1,4 +1,5 @@
 import type { Tier } from "../configuration.js";
+import { isForkContext, type ForkContext } from "./context.js";
 import { validateDescription } from "./identity.js";
 
 export const ENTRY_TYPE = "pi-async-fork";
@@ -12,6 +13,7 @@ export type Created = {
   stateDir?: string;
   sessionPath: string;
   tier: Tier;
+  context?: ForkContext;
   triggerTurn?: boolean;
   description?: string;
 };
@@ -48,6 +50,7 @@ function isLifecycleRecord(value: unknown): value is LifecycleRecord {
       && (raw.stateDir === undefined || typeof raw.stateDir === "string")
       && typeof raw.sessionPath === "string"
       && (raw.tier === "fast" || raw.tier === "balanced" || raw.tier === "deep")
+      && (raw.context === undefined || isForkContext(raw.context))
       && (raw.triggerTurn === undefined || typeof raw.triggerTurn === "boolean")
       && hasValidDescription(raw.description);
   }

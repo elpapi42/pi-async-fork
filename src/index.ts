@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { loadConfiguration, TIERS, type Tier } from "./configuration.js";
 import { Controller } from "./forks/controller.js";
+import { CONTEXTS, DEFAULT_CONTEXT, type ForkContext } from "./forks/context.js";
 import type { ActivityCollection, ActivityEntry } from "./forks/agent.js";
 import { RESULT_TYPE } from "./forks/ledger.js";
 import { assertForkToolsAvailable, FORK_CHILD_ERROR, isForkChildSession } from "./forks/session.js";
@@ -18,6 +19,11 @@ const NAME_DESCRIPTION = "Choose one or two short lowercase letter-only words, s
 const TASK_DESCRIPTION = "Describe the focused task you want the fork to complete. State what to do and where the fork's decision authority ends. The fork reports blockers and ambiguities outside that authority instead of resolving them on your behalf.";
 const DESCRIPTION_DESCRIPTION = "Summarize the fork's purpose in 3 to 6 words for the user. Describe the work, not the fork mechanics. Example: \"Trace login session validation\".";
 const EFFORT_DESCRIPTION = "Choose the fork's reasoning effort. Select it from the primary cognitive job and required reasoning depth. Use the lowest effort that can reliably complete the task. Effort changes reasoning depth, not task scope. Use fast for bounded read-only evidence gathering, including lookups, codebase exploration, documentation or web research, exact checks, inventories, and source or relationship tracing. Fast returns facts and does not make final judgments, recommendations, diagnoses, approval or gate decisions, or changes. Use balanced for bounded judgment or settled execution, including review, plan validation, test interpretation, bounded diagnosis, research synthesis, implementation planning, and scoped changes. Use deep for frontier uncertainty or the hardest reasoning, including novel architecture, unclear root causes, conflicting evidence, difficult security or data analysis, complex system behavior, major product decisions, broad blast radius, and hard-to-reverse choices. If fast evidence needs judgment, use balanced; if it exposes complex uncertainty, use deep. If unsure, use balanced. Deep is expensive and has more reasoning capability than you. Use it only when that additional capability is necessary for the outcome.";
+const CONTEXT_DESCRIPTION = "Choose what conversation context the fork starts with. \"full\" (default) copies the active conversation up to this call, so the fork can see everything discussed so far. \"slim\" starts the fork with no parent conversation: it sees only its task, with the same system prompt, model, and tools. Use slim for self-contained tasks whose task text, or a brief file it points to, holds everything the fork needs. A slim fork cannot see earlier messages, so state the goal, constraints, and file paths in the task. Keep full when the task depends on the conversation.";
+const CONTEXT_GUIDELINES = [
+  "Use create_fork with context \"slim\" only for self-contained tasks whose task text, or a brief file it points to, holds everything the fork needs. A slim fork sees no parent conversation, which makes it faster, cheaper, and less noisy in long sessions.",
+  "Keep create_fork context \"full\" (the default) when the fork needs earlier conversation, decisions, or findings that the task text does not restate.",
+];
 const ID_DESCRIPTION = "Use the complete fork ID returned by create_fork. Do not shorten, modify, or reconstruct it.";
 const STATUS_LIMIT_DESCRIPTION = "Optional positive integer. When supplied, return only the latest observed activity entries. Without it, return all observed entries within output limits.";
 
@@ -113,17 +119,19 @@ export default function register(pi: any): void {
   pi.registerTool({
     name: "create_fork",
     label: "Create async fork",
-    description: `Create an asynchronous fork for a focused task. You receive the complete fork ID after task acceptance. Progress reports, final reports, or terminal notices arrive as messages. ${NAME_DESCRIPTION}`,
+    description: `Create an asynchronous fork for a focused task. You receive the complete fork ID after task acceptance. Progress reports, final reports, or terminal notices arrive as messages. Optional context "slim" starts the fork without the parent conversation; the default "full" copies it. ${NAME_DESCRIPTION}`,
+    promptGuidelines: CONTEXT_GUIDELINES,
     parameters: Type.Object({
       name: Type.String({ description: NAME_DESCRIPTION }),
       task: Type.String({ description: TASK_DESCRIPTION }),
       description: Type.String({ description: DESCRIPTION_DESCRIPTION }),
       effort: Type.Optional(Type.Union(TIERS.map((effort) => Type.Literal(effort)), { description: EFFORT_DESCRIPTION })),
+      context: Type.Optional(Type.Union(CONTEXTS.map((context) => Type.Literal(context)), { description: CONTEXT_DESCRIPTION })),
     }),
     renderCall: renderCreateForkCall,
     renderResult: renderCreateForkResult,
-    async execute(toolCallId: string, params: { name: string; task: string; description: string; effort?: Tier }, signal: AbortSignal, _onUpdate: any, ctx: any) {
-      const forkId = await getController(ctx).create(ctx, toolCallId, params.name, params.task, params.description, params.effort ?? "balanced", signal);
+    async execute(toolCallId: string, params: { name: string; task: string; description: string; effort?: Tier; context?: ForkContext }, signal: AbortSignal, _onUpdate: any, ctx: any) {
+      const forkId = await getController(ctx).create(ctx, toolCallId, params.name, params.task, params.description, params.effort ?? "balanced", signal, params.context ?? DEFAULT_CONTEXT);
       return { content: [{ type: "text", text: forkId }], details: { forkId } };
     },
   });
@@ -156,7 +164,8 @@ export default function register(pi: any): void {
     renderResult: renderForkStatusResult,
     async execute(_toolCallId: string, params: { forkId: string; limit?: number }, signal: AbortSignal, _onUpdate: any, ctx: any) {
       const status = await getController(ctx).status(ctx, params.forkId, params.limit, signal);
-      const text = status.activity ? `${params.forkId}: ${status.state}\n\n${activityText(status.activity)}` : `${params.forkId}: ${status.state}`;
+      const header = `${params.forkId}: ${status.state}${status.context ? `\ncontext: ${status.context}` : ""}`;
+      const text = status.activity ? `${header}\n\n${activityText(status.activity)}` : header;
       return {
         content: [{ type: "text", text }],
         details: status.activity ? { ...status, activityText: activityText(status.activity) } : status,

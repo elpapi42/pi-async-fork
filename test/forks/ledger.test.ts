@@ -70,3 +70,11 @@ test("ignores malformed lifecycle records", () => {
   ]);
   assert.equal(records.size, 0);
 });
+
+test("accepts a slim or full context and rejects an unknown one", () => {
+  assert.equal(project([entry({ ...created, context: "slim" })]).get(created.forkId)?.context, "slim");
+  assert.equal(project([entry({ ...created, context: "full" })]).get(created.forkId)?.context, "full");
+  assert.equal(project([entry(created)]).get(created.forkId)?.context, undefined);
+  assert.equal(project([entry({ ...created, context: "tiny" })]).has(created.forkId), false);
+  assert.equal(project([entry({ ...created, context: 1 })]).has(created.forkId), false);
+});

@@ -2,6 +2,7 @@ import { AgentNameTakenError, type Agent, type AgentState } from "@elpapi42/pi-f
 import type { Configuration, Tier } from "../configuration.js";
 import { Agents, type ActivityCollection, type Candidate, type ManagedAgents } from "./agent.js";
 import { Delivery } from "./delivery.js";
+import { DEFAULT_CONTEXT, isForkContext, type ForkContext } from "./context.js";
 import { createId, maxIdAttempts, validateDescription } from "./identity.js";
 import { active, appendCreated, appendDestroyed, project, type Created, type Destroyed } from "./ledger.js";
 import { assertForkToolsAvailable, createChildSession, removeChildSession } from "./session.js";
@@ -23,6 +24,13 @@ const SETTLEMENT_GRACE_MS = 10_000;
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function statusMetadata(record: { description?: string; context?: ForkContext }): { description?: string; context?: ForkContext } {
+  return {
+    ...(record.description ? { description: record.description } : {}),
+    ...(record.context === "slim" ? { context: record.context } : {}),
+  };
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -115,9 +123,10 @@ export class Controller {
     }
   }
 
-  async create(ctx: any, toolCallId: string, name: string, task: string, description: string, tier: Tier = "balanced", signal?: AbortSignal): Promise<string> {
+  async create(ctx: any, toolCallId: string, name: string, task: string, description: string, tier: Tier = "balanced", signal?: AbortSignal, context: ForkContext = DEFAULT_CONTEXT): Promise<string> {
     this.resume();
     assertForkToolsAvailable(ctx.sessionManager);
+    if (!isForkContext(context)) throw new Error(`Unsupported fork context: ${String(context)}. Use "full" or "slim".`);
     description = validateDescription(description);
     const existingIds = new Set(project(ctx.sessionManager.getBranch()).keys());
     for (let attempt = 0; attempt < maxIdAttempts; attempt += 1) {
@@ -125,7 +134,7 @@ export class Controller {
       const forkId = createId(name);
       if (existingIds.has(forkId)) continue;
       existingIds.add(forkId);
-      const child = await createChildSession(ctx.sessionManager, toolCallId, forkId);
+      const child = await createChildSession(ctx.sessionManager, toolCallId, forkId, context);
       let agent: Agent | undefined;
       try {
         const profile = this.#configuration.profiles[tier];
@@ -144,6 +153,7 @@ export class Controller {
           ...(this.#configuration.stateDir ? { stateDir: this.#configuration.stateDir } : {}),
           sessionPath: child.path,
           tier,
+          ...(context === "slim" ? { context } : {}),
           description,
         };
         const running: Running = { ...created, agent, registered: false, reports: [] };
@@ -205,11 +215,11 @@ export class Controller {
     });
   }
 
-  async status(ctx: any, forkId: string, limit?: number, signal?: AbortSignal): Promise<{ state: AgentState | "completed"; description?: string; activity?: ActivityCollection }> {
+  async status(ctx: any, forkId: string, limit?: number, signal?: AbortSignal): Promise<{ state: AgentState | "completed"; description?: string; context?: ForkContext; activity?: ActivityCollection }> {
     this.resume();
     const record = project(ctx.sessionManager.getBranch()).get(forkId);
     if (!record) throw new Error(`Fork ${forkId} was not found on this session branch.`);
-    const description = record.description ? { description: record.description } : {};
+    const description = statusMetadata(record);
     if (record.destroyed) return { state: "completed", ...description };
     const running = this.#running.get(forkId);
     if (!running || running.agentId !== record.agentId) throw new Error(this.#unavailable.get(forkId) ?? `Fork ${forkId} is unavailable in this session.`);
@@ -223,7 +233,7 @@ export class Controller {
     }
     const current = project(ctx.sessionManager.getBranch()).get(forkId);
     if (!current) throw new Error(`Fork ${forkId} was not found on this session branch.`);
-    const currentDescription = current.description ? { description: current.description } : {};
+    const currentDescription = statusMetadata(current);
     if (current.destroyed) return { state: "completed", ...currentDescription };
     const currentRunning = this.#running.get(forkId);
     if (current.agentId !== running.agentId || currentRunning !== running || currentRunning.agentId !== current.agentId) {
@@ -234,7 +244,7 @@ export class Controller {
     } catch (error) {
       const settled = project(ctx.sessionManager.getBranch()).get(forkId);
       if (settled?.destroyed && settled.agentId === running.agentId) {
-        return { state: "completed", ...(settled.description ? { description: settled.description } : {}) };
+        return { state: "completed", ...statusMetadata(settled) };
       }
       throw error;
     }

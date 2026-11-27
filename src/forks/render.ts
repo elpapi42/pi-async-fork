@@ -3,7 +3,7 @@ import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { validateDescription } from "./identity.js";
 
 type RenderContext = {
-  args?: { name?: unknown; description?: unknown; effort?: unknown; tier?: unknown; task?: unknown; forkId?: unknown; message?: unknown };
+  args?: { name?: unknown; description?: unknown; effort?: unknown; context?: unknown; tier?: unknown; task?: unknown; forkId?: unknown; message?: unknown };
   state: Record<string, unknown>;
   lastComponent?: unknown;
   isError?: boolean;
@@ -37,7 +37,7 @@ function createCallText(args: RenderContext["args"], forkId: unknown, theme: any
   const effort = typeof args?.effort === "string" ? args.effort : typeof args?.tier === "string" ? args.tier : "balanced";
   const id = typeof forkId === "string" ? forkId : pendingId(args);
   const description = descriptionText(args?.description);
-  return `${theme.fg("toolTitle", theme.bold("create_fork"))} ${theme.fg("muted", `[${effort}]`)} ${theme.fg("accent", id)}${description ? theme.fg("muted", ` · ${description}`) : ""}`;
+  return `${theme.fg("toolTitle", theme.bold("create_fork"))} ${theme.fg("muted", `[${args?.context === "slim" ? `${effort} · slim` : effort}]`)} ${theme.fg("accent", id)}${description ? theme.fg("muted", ` · ${description}`) : ""}`;
 }
 
 function forkId(args: RenderContext["args"]): string {

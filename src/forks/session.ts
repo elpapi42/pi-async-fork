@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { DEFAULT_CONTEXT, isForkContext, type ForkContext } from "./context.js";
 import { buildForkBoundary } from "./task-prompt.js";
 
 export type ChildSession = { path: string };
@@ -63,7 +64,7 @@ export function projectInvokingAssistant(entry: any): any | undefined {
   };
 }
 
-export function createForkBoundary(entry: any, parentId: string | null | undefined, forkId: string): any {
+export function createForkBoundary(entry: any, parentId: string | null | undefined, forkId: string, context: ForkContext = DEFAULT_CONTEXT): any {
   const timestamp = Date.now();
   const message = { ...entry.message };
   delete message.responseId;
@@ -75,7 +76,7 @@ export function createForkBoundary(entry: any, parentId: string | null | undefin
     message: {
       ...message,
       role: "assistant",
-      content: [{ type: "text", text: buildForkBoundary(forkId) }],
+      content: [{ type: "text", text: buildForkBoundary(forkId, context) }],
       stopReason: "stop",
       timestamp,
       usage: zeroUsage(),
@@ -83,7 +84,48 @@ export function createForkBoundary(entry: any, parentId: string | null | undefin
   };
 }
 
-export async function createChildSession(sessionManager: any, toolCallId: string, forkId: string): Promise<ChildSession> {
+function isSystemMessage(entry: any): boolean {
+  return entry?.type === "message" && entry.message?.role === "system";
+}
+
+/**
+ * Slim children keep the parent's prompt and tool loadout but none of its conversation.
+ * Pi persists both as system-role message entries, and a compaction entry's `systemMessage` is a
+ * complete checkpoint that supersedes every earlier system message. Replaying the returned entries
+ * in order yields the parent's current prompt and tools. Entries are re-linked into a fresh chain
+ * that starts at a null parent.
+ */
+export function projectSlimSetup(entries: readonly any[]): any[] {
+  let start = 0;
+  let checkpoint: any;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.type === "compaction" && entries[index].systemMessage) {
+      checkpoint = entries[index];
+      start = index + 1;
+      break;
+    }
+  }
+  const setup: any[] = [];
+  if (checkpoint) {
+    setup.push({
+      type: "message",
+      id: randomUUID(),
+      parentId: null,
+      timestamp: checkpoint.timestamp,
+      message: { ...checkpoint.systemMessage },
+    });
+  }
+  for (const entry of entries.slice(start)) if (isSystemMessage(entry)) setup.push({ ...entry });
+  let parentId: string | null = null;
+  for (const entry of setup) {
+    entry.parentId = parentId;
+    parentId = entry.id;
+  }
+  return setup;
+}
+
+export async function createChildSession(sessionManager: any, toolCallId: string, forkId: string, context: ForkContext = DEFAULT_CONTEXT): Promise<ChildSession> {
+  if (!isForkContext(context)) throw new Error(`Unsupported fork context: ${String(context)}.`);
   const branch = sessionManager.getBranch();
   let boundary = -1;
   for (let index = branch.length - 1; index >= 0; index -= 1) {
@@ -99,12 +141,14 @@ export async function createChildSession(sessionManager: any, toolCallId: string
   const header = sessionManager.getHeader();
   const sessionId = header.id;
   const fileId = randomUUID();
-  const projected = [...branch.slice(0, boundary)];
-  const assistant = projectInvokingAssistant(branch[boundary]);
+  const slim = context === "slim";
+  const projected = slim ? projectSlimSetup(branch.slice(0, boundary)) : [...branch.slice(0, boundary)];
+  const assistant = slim ? undefined : projectInvokingAssistant(branch[boundary]);
   if (assistant) projected.push(assistant);
-  const marker = createForkChildMarker(assistant?.id ?? branch[boundary].parentId, sessionId, forkId);
+  const markerParent = slim ? projected.at(-1)?.id ?? null : assistant?.id ?? branch[boundary].parentId;
+  const marker = createForkChildMarker(markerParent, sessionId, forkId);
   projected.push(marker);
-  projected.push(createForkBoundary(branch[boundary], marker.id, forkId));
+  projected.push(createForkBoundary(branch[boundary], marker.id, forkId, context));
 
   const directory = join(dirname(parentPath), "async-forks");
   const path = join(directory, `${fileId}.jsonl`);
