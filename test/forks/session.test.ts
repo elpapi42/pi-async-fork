@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createChildSession, isForkChildSession, projectInvokingAssistant } from "../../src/forks/session.js";
+import { buildForkBoundary } from "../../src/forks/task-prompt.js";
 
 const zeroUsage = {
   input: 0,
@@ -179,6 +180,136 @@ test("retains identity and child detection when deriving a descendant session di
       getEntries: () => descendantEntries.slice(1),
     }), true);
     assert.deepEqual(await entries(child.path), childEntries);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// --- slim context ---
+
+const systemEntry = {
+  type: "message",
+  id: "system",
+  parentId: null,
+  timestamp: "2026-01-01T00:00:00.000Z",
+  message: { role: "system", content: "", sections: { preamble: "Parent prompt." }, toolsAdded: [{ name: "read" }], timestamp: 1 },
+};
+const parentUser = { type: "message", id: "user", parentId: "system", timestamp: "2026-01-01T00:00:01.000Z", message: { role: "user", content: "SECRET parent request." } };
+const parentReply = { type: "message", id: "reply", parentId: "user", timestamp: "2026-01-01T00:00:02.000Z", message: { role: "assistant", content: [{ type: "text", text: "SECRET parent reply." }], stopReason: "stop" } };
+const invoking = { ...entry, parentId: "reply" };
+
+function assertValidChain(childEntries: any[]) {
+  const [header, ...rest] = childEntries;
+  assert.equal(header.type, "session");
+  assert.equal(rest[0].parentId, null);
+  const ids = new Set<string>();
+  rest.forEach((child, index) => {
+    assert.equal(ids.has(child.id), false, "entry ids are unique");
+    if (index > 0) assert.equal(child.parentId, rest[index - 1].id);
+    ids.add(child.id);
+  });
+}
+
+test("slim child holds no parent conversation and has a valid chain from a null root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-session-"));
+  await writeFile(join(root, "parent.jsonl"), "parent\n");
+  try {
+    const child = await createChildSession(manager(root, [systemEntry, parentUser, parentReply, invoking]), "call-1", "research-1234567", "slim");
+    const raw = await readFile(child.path, "utf8");
+    assert.doesNotMatch(raw, /SECRET/);
+    assert.doesNotMatch(raw, /I will delegate this/);
+    assert.doesNotMatch(raw, /"toolCall"/);
+    const childEntries = await entries(child.path);
+    assert.deepEqual(childEntries.slice(1).map((value) => value.id === "system" ? "system" : value.type), ["system", "custom", "message"]);
+    assertValidChain(childEntries);
+    const marker = childEntries.at(-2);
+    const boundary = childEntries.at(-1);
+    assert.equal(marker.parentId, "system");
+    assert.equal(marker.data.sessionId, childEntries[0].id);
+    assert.equal(marker.data.forkId, "research-1234567");
+    assert.equal(boundary.parentId, marker.id);
+    assert.equal(boundary.message.provider, "openai-codex");
+    assert.equal(boundary.message.model, "model");
+    assert.doesNotMatch(boundary.message.content[0].text, /earlier conversation records work/);
+    assert.match(boundary.message.content[0].text, /no earlier conversation/);
+    assert.match(boundary.message.content[0].text, /Fork ID: research-1234567$/);
+    assert.equal(childEntries[0].parentSession, join(root, "parent.jsonl"));
+    assert.equal(isForkChildSession({ getHeader: () => childEntries[0], getEntries: () => childEntries.slice(1) }), true);
+    assert.equal(await readFile(join(root, "parent.jsonl"), "utf8"), "parent\n");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("slim child roots the marker at null when the parent has no system entries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-session-"));
+  await writeFile(join(root, "parent.jsonl"), "parent\n");
+  try {
+    const child = await createChildSession(manager(root, [{ ...parentUser, parentId: null }, parentReply, invoking]), "call-1", "research-1234567", "slim");
+    const childEntries = await entries(child.path);
+    assert.equal(childEntries.length, 3);
+    assert.equal(childEntries[1].type, "custom");
+    assert.equal(childEntries[1].parentId, null);
+    assertValidChain(childEntries);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("slim child replays the latest compaction checkpoint plus later system patches only", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-session-"));
+  await writeFile(join(root, "parent.jsonl"), "parent\n");
+  const checkpoint = { role: "system", content: "", sections: { preamble: "Checkpoint prompt." }, toolsAdded: [], timestamp: 5 };
+  const compaction = { type: "compaction", id: "compaction", parentId: "reply", timestamp: "2026-01-01T00:00:05.000Z", summary: "SECRET summary", firstKeptEntryId: "user", tokensBefore: 10, systemMessage: checkpoint };
+  const patch = { type: "message", id: "patch", parentId: "compaction", timestamp: "2026-01-01T00:00:06.000Z", message: { role: "system", content: "", sections: { skills: "later" }, timestamp: 6 } };
+  try {
+    const child = await createChildSession(manager(root, [systemEntry, parentUser, parentReply, compaction, patch, { ...invoking, parentId: "patch" }]), "call-1", "research-1234567", "slim");
+    const raw = await readFile(child.path, "utf8");
+    assert.doesNotMatch(raw, /SECRET/);
+    assert.doesNotMatch(raw, /Parent prompt\./);
+    const childEntries = await entries(child.path);
+    const setup = childEntries.slice(1, -2);
+    assert.deepEqual(setup.map((value) => value.message.sections), [{ preamble: "Checkpoint prompt." }, { skills: "later" }]);
+    assert.equal(childEntries.some((value) => value.type === "compaction"), false);
+    assertValidChain(childEntries);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("slim still fails clearly when the tool call is not on the active branch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-session-"));
+  await writeFile(join(root, "parent.jsonl"), "parent\n");
+  try {
+    await assert.rejects(() => createChildSession(manager(root, [parentUser]), "call-1", "research-1234567", "slim"), /current tool call is not in the active session branch/);
+    await assert.rejects(() => createChildSession(manager(root, [invoking]), "call-1", "research-1234567", "bogus" as any), /Unsupported fork context/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("full context stays identical to the pre-slim projection and is the default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-session-"));
+  await writeFile(join(root, "parent.jsonl"), "parent\n");
+  const branch = [systemEntry, parentUser, parentReply, invoking];
+  // Normalise the generated ids and timestamps; everything else must match the original projection.
+  const normalise = (childEntries: any[]) => childEntries.slice(1).map((value, index, all) => {
+    const { id: _id, timestamp: _timestamp, ...rest } = value;
+    if (index === all.length - 1) rest.parentId = "marker";
+    if (rest.message?.timestamp) rest.message = { ...rest.message, timestamp: 0 };
+    return rest;
+  });
+  try {
+    const implicit = await createChildSession(manager(root, branch), "call-1", "research-1234567");
+    const explicit = await createChildSession(manager(root, branch), "call-1", "research-1234567", "full");
+    const [a, b] = [await entries(implicit.path), await entries(explicit.path)];
+    assert.deepEqual(normalise(a), normalise(b));
+    assert.deepEqual(a.slice(1, 5).map((value) => value.id), ["system", "user", "reply", "assistant"]);
+    assert.deepEqual(a.slice(1, 4), [systemEntry, parentUser, parentReply]);
+    assert.equal(a.at(-3).message.content.some((block: any) => block.type === "toolCall"), false);
+    assert.equal(a.at(-2).parentId, "assistant");
+    assert.equal(a.at(-1).message.content[0].text, buildForkBoundary("research-1234567"));
+    assertValidChain(a);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

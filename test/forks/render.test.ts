@@ -72,6 +72,18 @@ test("renders pending and completed fork IDs in the call line", async () => {
   }
 });
 
+test("marks a slim create_fork call line and leaves full unchanged", async () => {
+  const { renderer, cleanup } = await loadRenderer();
+  try {
+    const args = { name: "review", description: "Review active authorization rules", effort: "fast" };
+    assert.equal(text(renderer.renderCreateForkCall({ ...args, context: "slim" }, theme(), { state: {} })), "create_fork [fast · slim] review-… · Review active authorization rules");
+    assert.equal(text(renderer.renderCreateForkCall({ ...args, context: "full" }, theme(), { state: {} })), "create_fork [fast] review-… · Review active authorization rules");
+    assert.equal(text(renderer.renderCreateForkCall(args, theme(), { state: {} })), "create_fork [fast] review-… · Review active authorization rules");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("renders fork result messages without duplicating the fork ID", async () => {
   const { renderer, cleanup } = await loadRenderer();
   try {

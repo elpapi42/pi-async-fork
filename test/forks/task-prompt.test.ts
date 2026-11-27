@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildAssignedTask, buildForkBoundary } from "../../src/forks/task-prompt.js";
@@ -54,4 +55,24 @@ test("places conditional progress guidance after the unchanged task and before t
   assert.match(task, /Use both headings even for a one-line task\./);
   assert.match(task, /If there are no reusable learnings, write `No reusable learnings found\.` under `## Learnings`\./);
   assert.equal(task.endsWith("under `## Learnings`."), true);
+});
+
+test("full boundary text is byte-identical to the pre-slim text and is the default", () => {
+  const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+  // Hash of buildForkBoundary("research-1234567") at upstream 5c1067b, before the context option existed.
+  assert.equal(hash(buildForkBoundary("research-1234567")), "4baea62b85492fb6b17ec88ed332936aa7033baf2cb25bb122c2cc930d8f74a2");
+  assert.equal(buildForkBoundary("research-1234567", "full"), buildForkBoundary("research-1234567"));
+});
+
+test("slim boundary drops the earlier-conversation framing and keeps every fork rule", () => {
+  const full = buildForkBoundary("research-1234567");
+  const slim = buildForkBoundary("research-1234567", "slim");
+  assert.doesNotMatch(slim, /The earlier conversation records work done by the main agent/);
+  assert.match(slim, /This session has no earlier conversation\./);
+  assert.match(slim, /^I am a fork\. I am not the main agent\./);
+  assert.match(slim, /The next user message is my only active task\./);
+  assert.match(slim, /I must not call `create_fork`, `fork_status`, or `steer_fork`\./);
+  assert.match(slim, /Fork ID: research-1234567$/);
+  const tail = (text: string) => text.slice(text.indexOf("The next user message"));
+  assert.equal(tail(slim), tail(full));
 });

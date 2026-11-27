@@ -14,6 +14,19 @@ Progress reports never wake an idle agent. Final reports and terminal notices al
 
 New fork records store `description`. The description appears only in TUI metadata. It does not change the model-visible report envelope. Creation and progress, final, and notice headers append ` · <description>` after the public fork ID. Status appends the description after a successful result. Steering headers do not change. Historical records or result messages without a description retain their current headers. Historical `fork.created` records may contain `triggerTurn`; the parser accepts it for compatibility and ignores it.
 
+## Fork context
+
+`create_fork` accepts an optional `context`.
+
+- `full` (default) copies the parent's active conversation up to the `create_fork` call. Use it when the fork needs the discussion, decisions, or findings so far.
+- `slim` starts the fork with no parent conversation. It sees only its task. It keeps the parent's system prompt and tools and runs with the model and thinking level selected by `effort`. Reporting, steering, `fork_status`, and final reports work as for a full fork.
+
+Choose `slim` for self-contained work, such as a build or review task whose task text, or a brief file it points to, holds everything the fork needs. It starts faster, costs less, and avoids dragging a long parent session into a focused task. A slim fork cannot see anything you did not put in the task, so state the goal, constraints, and file paths. Keep `full` when the task depends on earlier conversation. `fork_status` shows `context: slim` for slim forks, and the call line shows `[<effort> · slim]`.
+
+```json
+{ "name": "review", "description": "Review the migration plan", "task": "Read docs/briefs/migration.md and review the plan it describes.", "context": "slim" }
+```
+
 ## Fork status activity
 
 `fork_status` accepts an optional positive integer `limit`. For an active fork, it opens an independent pi-fleet replay from the start and returns an observed activity history. Without `limit`, it returns all observed mapped entries within collector output limits. With `limit`, it retains only the latest observed entries.

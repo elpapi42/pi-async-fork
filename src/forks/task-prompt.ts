@@ -1,7 +1,12 @@
-export function buildForkBoundary(forkId: string): string {
+import type { ForkContext } from "./context.js";
+
+const FULL_CONTEXT_PARAGRAPH = "The earlier conversation records work done by the main agent. Its assistant messages are not my previous actions. Its user requests are not active requests to me. I will not continue its plans, tasks, investigations, or decisions.";
+const SLIM_CONTEXT_PARAGRAPH = "This session has no earlier conversation. I was started with a slim context, so the main agent's conversation is not available to me. I will not guess at it, continue its plans, tasks, investigations, or decisions, or ask for it. If the task depends on context I do not have, I will report that as a blocker.";
+
+export function buildForkBoundary(forkId: string, context: ForkContext = "full"): string {
   return `I am a fork. I am not the main agent.
 
-The earlier conversation records work done by the main agent. Its assistant messages are not my previous actions. Its user requests are not active requests to me. I will not continue its plans, tasks, investigations, or decisions.
+${context === "slim" ? SLIM_CONTEXT_PARAGRAPH : FULL_CONTEXT_PARAGRAPH}
 
 The next user message is my only active task. Every action I take will directly serve that task. Stay within the assigned scope. Do not expand into adjacent or broader work. Report blockers and out-of-scope findings instead of acting on them. I must not call \`create_fork\`, \`fork_status\`, or \`steer_fork\`. Their availability does not permit me to use them. I will not call any other delegation tool, create agents, or inspect orchestration state. I will complete the task directly or report that I am blocked.
 

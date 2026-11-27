@@ -35,6 +35,17 @@ test("registers the three public tools with focused task and effort guidance", (
   assert.match(tools[0].parameters.properties.effort.description, /If fast evidence needs judgment, use balanced; if it exposes complex uncertainty, use deep/);
   assert.match(tools[0].parameters.properties.effort.description, /If unsure, use balanced/);
   assert.match(tools[0].parameters.properties.effort.description, /Deep is expensive and has more reasoning capability than you\. Use it only when that additional capability is necessary for the outcome\.$/);
+  const context = tools[0].parameters.properties.context;
+  assert.deepEqual(context.anyOf.map((option: any) => option.const), ["full", "slim"]);
+  assert.equal(tools[0].parameters.required.includes("context"), false);
+  assert.match(context.description, /"full" \(default\)/);
+  assert.match(context.description, /no parent conversation/);
+  assert.match(context.description, /same system prompt, model, and tools/);
+  assert.match(context.description, /self-contained tasks whose task text, or a brief file it points to, holds everything/);
+  assert.match(tools[0].description, /context "slim"/);
+  assert.equal(tools[0].promptGuidelines.length, 2);
+  assert.match(tools[0].promptGuidelines[0], /create_fork with context "slim" only for self-contained tasks/);
+  assert.match(tools[0].promptGuidelines[1], /"full" \(the default\)/);
   assert.equal(Object.hasOwn(tools[0].parameters.properties, "wakeOnCompletion"), false);
   assert.equal(Object.hasOwn(tools[0].parameters.properties, "triggerTurn"), false);
   assert.equal(Object.hasOwn(tools[0].parameters.properties, "tier"), false);
@@ -218,5 +229,74 @@ test("keeps tools available with a clear error when startup configuration is abs
     if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
     await rm(isolatedAgentDir, { recursive: true, force: true });
+  }
+});
+
+async function withConfiguredRegister<T>(run: (tools: any[], cwd: string) => Promise<T>): Promise<T> {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-index-"));
+  const agentDir = join(root, "agent");
+  const cwd = join(root, "project");
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  try {
+    await mkdir(agentDir, { recursive: true });
+    await writeFile(join(agentDir, "settings.json"), JSON.stringify({
+      "pi-async-fork": {
+        fast: { provider: "test", model: "fast", thinking: "low" },
+        balanced: { provider: "test", model: "balanced", thinking: "low" },
+        deep: { provider: "test", model: "deep", thinking: "low" },
+      },
+    }));
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    const tools: any[] = [];
+    register({ on() {}, registerTool(tool: unknown) { tools.push(tool); }, registerMessageRenderer() {} });
+    return await run(tools, cwd);
+  } finally {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+test("forwards create_fork context to the controller and defaults to full", async () => {
+  const originalCreate = Controller.prototype.create;
+  const received: unknown[] = [];
+  try {
+    (Controller.prototype.create as any) = async function (...args: unknown[]) {
+      received.push(args[7]);
+      return "research-1234567";
+    };
+    await withConfiguredRegister(async (tools, cwd) => {
+      const create = tools.find((tool) => tool.name === "create_fork");
+      for (const context of [undefined, "full", "slim"]) {
+        await create.execute("call", { name: "research", task: "Do the task.", description: "Complete the assigned task", ...(context ? { context } : {}) }, new AbortController().signal, undefined, { cwd, sessionManager: {} });
+      }
+    });
+    assert.deepEqual(received, ["full", "full", "slim"]);
+  } finally {
+    Controller.prototype.create = originalCreate;
+  }
+});
+
+test("fork_status shows context only for a slim fork", async () => {
+  const originalStatus = Controller.prototype.status;
+  try {
+    let next: any = { state: "working", context: "slim" };
+    (Controller.prototype.status as any) = async function () { return next; };
+    await withConfiguredRegister(async (tools, cwd) => {
+      const status = tools.find((tool) => tool.name === "fork_status");
+      const run = () => status.execute("call", { forkId: "research-1234567" }, new AbortController().signal, undefined, { cwd, sessionManager: {} });
+      const slim = await run();
+      assert.equal(slim.content[0].text, "research-1234567: working\ncontext: slim");
+      assert.equal(slim.details.context, "slim");
+      next = { state: "working" };
+      const full = await run();
+      assert.equal(full.content[0].text, "research-1234567: working");
+      assert.equal(Object.hasOwn(full.details, "context"), false);
+      next = { state: "working", context: "slim", activity: { entries: [], stopReason: "idle", outputTruncated: false, incomplete: false } };
+      const withActivity = await run();
+      assert.match(withActivity.content[0].text, /^research-1234567: working\ncontext: slim\n\nObserved activity/);
+    });
+  } finally {
+    Controller.prototype.status = originalStatus;
   }
 });

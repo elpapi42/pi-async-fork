@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Agent, AgentState } from "@elpapi42/pi-fleet-sdk";
 import type { Configuration } from "../../src/configuration.js";
 import { Controller } from "../../src/forks/controller.js";
+import { project } from "../../src/forks/ledger.js";
 import type { ActivityCollection, Candidate, ManagedAgents, ObserverCallbacks } from "../../src/forks/agent.js";
 import { buildAssignedTask } from "../../src/forks/task-prompt.js";
 
@@ -991,6 +992,127 @@ test("fork status reports raw state without reordering lifecycle observation", a
     agents.statusUpdate("working");
     await waitForLifecycle();
     assert.deepEqual(sent.map((message) => message.details.kind), ["progress"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+async function childFile(root: string): Promise<any[]> {
+  const directory = join(root, "async-forks");
+  const [name] = await readdir(directory);
+  return (await readFile(join(directory, name), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+}
+
+function slimBranch() {
+  return [
+    { type: "message", id: "user", parentId: null, message: { role: "user", content: "PARENT-ONLY request." } },
+    { type: "message", id: "assistant", parentId: "user", message: {
+      role: "assistant", stopReason: "toolUse", content: [{ type: "text", text: "Delegating." }, { type: "toolCall", id: "call-1", name: "create_fork", arguments: {} }],
+    } },
+  ];
+}
+
+test("slim create starts a child without parent history and records context only for slim", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = slimBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents, () => 0);
+  try {
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer", "balanced", undefined, "slim");
+    const created = branch.find((entry) => entry?.data?.type === "fork.created");
+    assert.equal(created.data.context, "slim");
+    assert.equal(agents.sent[0], buildAssignedTask("Find the answer."));
+    const childEntries = await childFile(root);
+    assert.doesNotMatch(JSON.stringify(childEntries), /PARENT-ONLY|Delegating/);
+    assert.equal(childEntries.length, 3);
+    assert.deepEqual(await controller.status(ctx, forkId), { state: "working", description: "Find the requested answer", context: "slim", activity: agents.activityCollection });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("full create keeps parent history and leaves the ledger and status free of context", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = slimBranch();
+  const { pi, ctx } = harness(root, branch);
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents, () => 0);
+  try {
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer");
+    const created = branch.find((entry) => entry?.data?.type === "fork.created");
+    assert.equal(Object.hasOwn(created.data, "context"), false);
+    assert.match(JSON.stringify(await childFile(root)), /PARENT-ONLY/);
+    assert.equal(Object.hasOwn(await controller.status(ctx, forkId), "context"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects an unknown context before creating a child session or fleet agent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const { pi, ctx } = harness(root, slimBranch());
+  const agents = new FakeAgents();
+  const controller = new Controller(pi, configuration, agents);
+  try {
+    await assert.rejects(
+      () => controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer", "balanced", undefined, "tiny" as any),
+      /Unsupported fork context: tiny/,
+    );
+    assert.equal(agents.created, 0);
+    assert.deepEqual(await readdir(root), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("slim forks keep steering, progress reports, final reports, and status context", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = slimBranch();
+  const { pi, ctx, sent } = harness(root, branch);
+  const agents = new FakeAgents();
+  let now = 0;
+  const controller = new Controller(pi, configuration, agents, () => now);
+  try {
+    const forkId = await controller.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer", "balanced", undefined, "slim");
+    await controller.steer(ctx, forkId, "Also check the second source.");
+    assert.equal(agents.sent.at(-1), "Also check the second source.");
+
+    agents.candidate({ text: "Checkpoint", cursor: "progress-1" });
+    agents.activity();
+    agents.statusUpdate("working");
+    await waitForLifecycle();
+    assert.deepEqual(sent.map((message) => message.details.kind), ["progress"]);
+    assert.match(sent[0].content, /intermediate progress report/);
+    assert.equal(agents.destroyed, 0);
+    assert.equal((await controller.status(ctx, forkId)).context, "slim");
+
+    agents.candidate({ text: "Final answer", cursor: "final-1" });
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    now += 10_000;
+    agents.statusUpdate("idle");
+    await waitForLifecycle();
+    assert.deepEqual(sent.map((message) => message.details.kind), ["progress", "response"]);
+    assert.equal(agents.destroyed, 1);
+    const destroyed = project(branch).get(forkId);
+    assert.equal(destroyed?.destroyed?.kind, "response");
+    assert.deepEqual(await controller.status(ctx, forkId), { state: "completed", description: "Find the requested answer", context: "slim" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("restores a slim fork from the ledger after a restart and keeps its context", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-async-fork-controller-"));
+  const branch: any[] = slimBranch();
+  const { pi, ctx } = harness(root, branch);
+  const first = new Controller(pi, configuration, new FakeAgents(), () => 0);
+  try {
+    const forkId = await first.create(ctx, "call-1", "research", "Find the answer.", "Find the requested answer", "balanced", undefined, "slim");
+    const second = new Controller(pi, configuration, new FakeAgents(), () => 0);
+    await second.start(ctx);
+    assert.equal((await second.status(ctx, forkId)).context, "slim");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

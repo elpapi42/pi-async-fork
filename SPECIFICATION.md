@@ -41,7 +41,7 @@ pi-fleet is the durable runtime for fork agents. It owns agent processes, worker
 ### `create_fork`
 
 ```text
-create_fork(name, task, description, effort?) → fork ID
+create_fork(name, task, description, effort?, context?) → fork ID
 ```
 
 The agent supplies a short semantic name for the work. The name does not need to be unique. It must contain one or two lowercase words, with one hyphen between two words. Each word contains letters only. The agent must not add a number because the tool appends the generated seven-digit suffix.
@@ -60,7 +60,9 @@ The `create_fork` tool description and its `name` parameter description must sta
 
 `effort` accepts `fast`, `balanced`, or `deep`. Choose it from the primary cognitive job and required reasoning depth. Use the lowest effort that can reliably complete the task. Effort changes reasoning depth, not task scope. `fast` is bounded read-only evidence gathering for lookups, codebase exploration, documentation or web research, exact checks, inventories, and source or relationship tracing. It returns facts and does not make final judgments, recommendations, diagnoses, approval or gate decisions, or changes. `balanced` applies bounded judgment or settled execution for review, plan validation, test interpretation, bounded diagnosis, research synthesis, implementation planning, and scoped changes. `deep` applies frontier uncertainty or the hardest reasoning for novel architecture, unclear root causes, conflicting evidence, difficult security or data analysis, complex system behavior, major product decisions, broad blast radius, and hard-to-reverse choices. Fast and balanced forks have less reasoning capability than the coordinating reader. Deep forks have more reasoning capability and use expensive compute. Capability does not change scope, permissions, authority, or ownership. The coordinating reader makes the decision after assessing every report against the active goal. Use deep only when its added reasoning capability is necessary for the outcome. Do not use deep for routine evidence gathering, settled execution, duplicate agreement, or work that balanced can complete reliably. If fast evidence needs judgment, use `balanced`; if it exposes complex uncertainty, use `deep`. The fixed default is `balanced`.
 
-In the Pi TUI, `create_fork` uses one content line: `create_fork [<effort>] <fork ID> · <description>`. Before creation returns the generated ID, it shows `<name>-…`. The expanded view adds the full task under `─── Task ───`. `steer_fork` uses `steer_fork <fork ID>` and adds the full steering message under `─── Message ───` only when expanded. After its result returns, `fork_status` uses `fork_status <fork ID> · <description>: <state>` and shows observed activity only when expanded. Historical calls without a description retain the existing `fork_status <fork ID>: <state>` format. Brackets apply only to the `create_fork` effort. Normal successful result output, usage, cost, and expansion hints remain hidden. Tool errors remain visible. The displayed ID is the public fork ID, not pi-fleet's internal agent UUID.
+`context` accepts `full` or `slim`. The fixed default is `full`, which keeps the behavior described in Session and context model. `slim` starts the fork with no parent conversation: it sees its assigned task and nothing else from the parent conversation. It keeps the parent's system prompt and tool loadout, and it runs with the model and thinking level chosen by `effort`. Everything else about the fork is unchanged: reporting, progress, steering, `fork_status`, final reports, automatic cleanup, and the child-session marker that blocks async-fork tools inside the fork. Use `slim` for self-contained tasks whose task text, or a brief file it points to, holds everything the fork needs. Keep `full` when the task depends on earlier conversation, decisions, or findings that the task text does not restate. A slim fork cannot recover context it was not given, so a task that relies on it must say so in the task text or report a blocker. The `create_fork` tool description, its `context` parameter description, and the tool's prompt guidelines must state this choice, the default, and when to use each value. An unsupported value is rejected before the extension creates a child session or pi-fleet agent.
+
+In the Pi TUI, `create_fork` uses one content line: `create_fork [<effort>] <fork ID> · <description>`. A slim fork shows `[<effort> · slim]` instead of `[<effort>]`. Before creation returns the generated ID, it shows `<name>-…`. The expanded view adds the full task under `─── Task ───`. `steer_fork` uses `steer_fork <fork ID>` and adds the full steering message under `─── Message ───` only when expanded. After its result returns, `fork_status` uses `fork_status <fork ID> · <description>: <state>` and shows observed activity only when expanded. Historical calls without a description retain the existing `fork_status <fork ID>: <state>` format. Brackets apply only to the `create_fork` effort. Normal successful result output, usage, cost, and expansion hints remain hidden. Tool errors remain visible. The displayed ID is the public fork ID, not pi-fleet's internal agent UUID.
 
 Fork result custom messages retain the model-visible fork-ID prefix `<forkId>:\n\n` followed by a progress, final, or notice sentence and then the report. Progress says `This is an intermediate progress report. The fork is still working and can receive steering.` Final output says `This is the final report. The fork finished and can no longer receive steering. Treat this report as an internal work event. Do not write user-visible text only because it arrived.` A notice says `This is a terminal notice. The fork finished and can no longer receive steering. Treat this notice as an internal work event. Do not write user-visible text only because it arrived.` The description is display metadata only and never changes this envelope.
 
@@ -86,6 +88,7 @@ The tool resolves the fork ID against the current active-branch ledger.
 - The activity stream stops after one second without an event or three seconds total. It is best effort, can take one to three seconds, and can miss history during replay, stream failure, or subscriber overflow.
 - The snapshot includes ordered UTC timestamps plus `thinking`, `message`, and `tool <name> <compact args>` entries. It excludes thinking content, message content, and tool output. Tool arguments are redacted and size-limited, but this is not a secret-safe audit log.
 - Without `limit`, status returns all observed mapped entries within collector output limits. A positive integer `limit` returns only the latest observed entries. Activity collection errors do not fail a valid status result.
+- A slim fork also returns `context: slim`: its tool text has a second line `context: slim` after the state line, and its details carry `context: "slim"`. Full forks, including historical records, return no context field and unchanged text.
 - A fork with matching `fork.created` and `fork.destroyed` entries returns the terminal public state `completed` without contacting pi-fleet or activity history because automatic cleanup removes the journal.
 - An ID with no `fork.created` entry on the active branch returns a not-found error.
 
@@ -193,7 +196,7 @@ All report delivery must serialize. Several progress or final reports can arrive
 
 ## Session and context model
 
-Each fork receives a retained child Pi session derived from the parent session's active branch.
+Each fork receives a retained child Pi session derived from the parent session's active branch. The `context` option selects how much of that branch the child receives. The rest of this section describes `full`; Slim context below describes `slim`.
 
 The child session file must:
 
@@ -218,6 +221,19 @@ Session IDs are no longer globally unique across the parent and its children. ID
 
 The child must never share the writable parent JSONL session file. Parent and child Pi processes must not append to the same session. Destroying a fleet agent must not delete its retained Pi session file.
 
+### Slim context
+
+With `context: "slim"` the extension still finds the invoking assistant entry by `toolCallId`, uses the same header handling, file creation, marker, and boundary mechanics, and returns the same creation error when it cannot find that entry. It does not copy any conversation entry from the active branch. The child session file contains, in order:
+
+1. the header, which keeps the parent's logical session ID and records the parent session path;
+2. system setup entries, if the branch has any: the parent's prompt and tool loadout, replayed from system-role message entries on the active branch before the cut. When the branch contains a compaction entry with a `systemMessage` checkpoint, the latest checkpoint replaces every earlier system entry and only later system entries follow it. The extension re-links these entries into a new chain whose first entry has `parentId: null` and drops every user, assistant, tool-result, compaction-summary, branch-summary, and custom entry;
+3. the `pi-async-fork-child` marker, linked to the last setup entry, or with `parentId: null` when there is none;
+4. the synthetic assistant boundary, linked to the marker.
+
+The slim child omits the cleaned invoking assistant entry, because its thinking and text are parent conversation. Every entry in the child file forms one valid chain from a null-parent root, and no entry points at an entry that the child does not contain. The boundary reuses the invoking entry's provider, API, and model metadata as in full mode. Its static text is identical to the full boundary except for the earlier-conversation paragraph: it states that the session has no earlier conversation, that the fork will not guess at or ask for it, and that it reports a blocker when the task depends on missing context. The fork ID still ends the boundary text.
+
+Slim forks give up the shared conversation prefix that full forks reuse for provider caching. They still share the logical session ID, the system setup, and the boundary prefix with sibling slim forks.
+
 ## Parent-session ledger
 
 The parent Pi session is the source of truth for fork ownership in that session branch.
@@ -229,7 +245,7 @@ fork.created
 fork.destroyed
 ```
 
-`fork.created` is appended only after pi-fleet creates the agent and `agent.send()` accepts the initial task. It records the fork ID, pi-fleet name, immutable pi-fleet agent ID, selected state directory, child session path, selected effort, and description. The description remains optional when parsing historical records. Historical records can include `triggerTurn`; the parser accepts and ignores it.
+`fork.created` is appended only after pi-fleet creates the agent and `agent.send()` accepts the initial task. It records the fork ID, pi-fleet name, immutable pi-fleet agent ID, selected state directory, child session path, selected effort, optional context, and description. The description remains optional when parsing historical records. The context is written only for `slim`. A missing context means `full`, and the parser rejects any other value. Historical records can include `triggerTurn`; the parser accepts and ignores it.
 
 `fork.destroyed` is appended only after pi-fleet destruction succeeds. It identifies the same fork and immutable agent ID, and stores the final output or situation notice, its kind, and the pi-fleet cursor when available for parent-delivery replay.
 
@@ -359,9 +375,10 @@ The `forks/` directory is one cohesive feature boundary. Its files use that dire
 - `index.ts` registers Pi tools and lifecycle hooks. It creates and stops the session-scoped controller and contains no fork behavior.
 - `configuration.ts` loads and validates `agentDir`, `stateDir`, `env`, and the three effort profiles. Configuration types remain with this module.
 - `forks/controller.ts` coordinates accepted creation, steer, status, restoration, branch protection, ordered report classification, settlement, situation notices, and finalization. It owns current in-memory fork state and the session generation guard, but no low-level storage, SDK, or message-formatting logic.
+- `forks/context.ts` owns the `full` and `slim` context values, the `full` default, and runtime validation.
 - `forks/identity.ts` owns name validation, seven-digit suffix generation, ID formatting, and collision attempts.
 - `forks/ledger.ts` owns `fork.created` and `fork.destroyed` entry shapes, active-branch projection, historical lookup, lifecycle writes, and replayable output records.
-- `forks/session.ts` owns the current tool-call cut, invoking-assistant projection, durable child-session marker and detection, linked synthetic assistant boundary entry, retained child JSONL creation, and unregistered-session cleanup after creation failure.
+- `forks/session.ts` owns the current tool-call cut, invoking-assistant projection, slim setup projection, durable child-session marker and detection, linked synthetic assistant boundary entry, retained child JSONL creation, and unregistered-session cleanup after creation failure.
 - `forks/agent.ts` is the only module that imports the public pi-fleet SDK. It owns client lifetime, agent creation and restoration, status monitoring, ordered activity receivers, serialized steering, and destruction.
 - `forks/delivery.ts` is the only module that calls `pi.sendMessage()`. It owns serialized parent progress, final, and notice delivery, model-visible envelopes, display metadata, and replay detection.
 - `forks/render.ts` owns the async-fork TUI rendering. It transfers returned fork IDs and states through Pi's row-local renderer state, updates its retained call components directly without reentrant invalidation, hides normal successful fork output, and renders observed activity only in expanded successful `fork_status` output.
